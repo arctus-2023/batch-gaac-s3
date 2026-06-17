@@ -1,2 +1,110 @@
 # batch-gaac-s3
-batch processing sentinel-3 image using gaac
+
+Batch atmospheric correction of Sentinel-3 OLCI L1 GeoTIFF scenes using [GAAC](https://github.com/arctus-2023/gaac_gen) (Genetic Algorithm for Atmospheric Correction).
+
+## Overview
+
+The pipeline processes each scene through three stages:
+
+1. **Rayleigh + gas correction** — ACOLITE LUT-based, writes `*_rhor.tif`
+2. **Water masking** — NDWI threshold combined with the classification band (a pixel is accepted as water only when both agree); writes `*_watermask.tif`
+3. **Aerosol correction** — GA optimisation + adjacency-effect and sky/sun-glint correction; writes `*_rhor_rhow.tif` and `*_rhor_rhoadj.tif`
+
+When `tile_size` is set, the aerosol step runs one GA optimisation per tile and interpolates the result spatially across the scene (tiled AC). Optimization pixel locations are exported automatically as `*_rhor_opt_pixels.gpkg`.
+
+Scenes are filtered by **clear-water percentage** before processing:
+
+```
+clear_water_pct = clear_water_pixels / (clear_water_pixels + cloud_water_pixels) × 100
+```
+
+where pixel classes come from the classification band of the L1 TOA GeoTIFF (0=clear_land, 1=clear_water, 2=cloud_land, 3=cloud_water, 255=invalid).
+
+## Requirements
+
+- Python ≥ 3.9, < 3.13
+- [gaac_gen](https://github.com/arctus-2023/gaac_gen) installed and its `src/` directory on `sys.path` (set via `gaac_gen_dir` in the config)
+- ACOLITE (path set via `acolite_dir` in the config or `$gaac_acolite_dir` env var)
+- GDAL/OGR (for GeoPackage export)
+
+Install dependencies with [uv](https://github.com/astral-sh/uv):
+
+```bash
+uv sync
+source .venv/bin/activate
+```
+
+## Usage
+
+```bash
+python batch_gaac_s3.py <config.yml> [options]
+```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | List scenes and clear-water % without processing |
+| `--limit N` | Stop after processing N scenes (useful for testing) |
+| `--scene SUBSTR` | Only process scenes whose filename contains `SUBSTR` (repeatable) |
+| `--ndwi-threshold T` | Override the NDWI water-mask threshold from the config |
+
+### Examples
+
+```bash
+# Full batch run
+python batch_gaac_s3.py batch_gaac_s3_config_test.yml
+
+# Test on one scene
+python batch_gaac_s3.py batch_gaac_s3_config_test.yml --limit 1
+
+# Reprocess a specific scene with a stricter water mask
+python batch_gaac_s3.py batch_gaac_s3_config_test.yml \
+    --scene S3A_L1TOA_20250712 --ndwi-threshold 0.3
+```
+
+## Configuration
+
+Copy and edit `batch_gaac_s3_config_test.yml`:
+
+```yaml
+gaac_gen_dir: /path/to/gaac_gen/src
+acolite_dir:  /path/to/acolite
+
+l1_dir:    /path/to/L1/scenes
+output_dir: /path/to/L2_output
+
+input_type: ACOTOA
+clear_water_threshold: 5.0   # minimum clear-water % to process a scene
+
+masking:
+  method: ndwi
+  threshold: 0.0             # NDWI threshold (override with --ndwi-threshold)
+  replace_output: false
+
+rayleigh:
+  proc: acolite
+  replace_output: false
+  output_rgb: true
+  use_ancillary: false
+
+aerosol:
+  replace_output: false
+  perform_ac: true
+  tile_size: 200             # remove or comment out to disable tiled AC
+```
+
+## Outputs
+
+Each processed scene produces a `<scene_name>_GAAC/` subdirectory containing:
+
+| File | Description |
+|------|-------------|
+| `*_rhor.tif` | Rayleigh-corrected reflectance |
+| `*_watermask.tif` | Water mask (5=clear water, 6=cloud water) |
+| `*_rhor_rhow.tif` | Water-leaving reflectance |
+| `*_rhor_rhoadj.tif` | Adjacency-corrected reflectance |
+| `*_rhor_rgb.tif` | RGB preview with optimization pixel(s) marked |
+| `*_rhor_opt_pixels.gpkg` | Optimization pixel locations (GeoPackage) |
+| `*_tile_NN_res.png` | Per-tile GA optimization fit plots (tiled AC only) |
+| `log_gaac_*.txt` | Processing log |
