@@ -70,6 +70,9 @@ python batch_gaac_s3.py <config.yml> [options]
 # Full batch run
 python batch_gaac_s3.py batch_gaac_s3_config_test.yml
 
+# Survey scenes before processing — writes dryrun_YYYYMMDD_HHMMSS.csv to output_dir
+python batch_gaac_s3.py batch_gaac_s3_config_test.yml --dry-run
+
 # Test on one scene
 python batch_gaac_s3.py batch_gaac_s3_config_test.yml --limit 1
 
@@ -77,6 +80,16 @@ python batch_gaac_s3.py batch_gaac_s3_config_test.yml --limit 1
 python batch_gaac_s3.py batch_gaac_s3_config_test.yml \
     --scene S3A_L1TOA_20250712 --ndwi-threshold 0.3
 ```
+
+### Dry-run CSV
+
+`--dry-run` writes a `dryrun_YYYYMMDD_HHMMSS.csv` file to `output_dir` with one row per scene:
+
+| Column | Description |
+|--------|-------------|
+| `scene` | Scene filename |
+| `clear_water_pct` | `clear_water / (clear_water + cloud_water) × 100` |
+| `status` | `would_process`, `below_threshold`, or `no_classification_band` |
 
 ## Configuration
 
