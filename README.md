@@ -68,7 +68,7 @@ python batch_gaac_s3.py batch_gaac_s3_config_test.yml \
 Copy and edit `batch_gaac_s3_config_test.yml`:
 
 ```yaml
-gaac_gen_dir: /path/to/gaac_gen/src
+gaac_gen_dir: /path/to/gaac_gen/src   # must point to the src/ subdirectory
 acolite_dir:  /path/to/acolite
 
 l1_dir:    /path/to/L1/scenes

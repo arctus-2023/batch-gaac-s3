@@ -112,6 +112,12 @@ def main():
 
     # ── Inject gaac_gen into sys.path before any gaac imports ─────────────────
     gaac_gen_dir = cfg['gaac_gen_dir']
+    if not os.path.isdir(os.path.join(gaac_gen_dir, 'gaac')):
+        raise FileNotFoundError(
+            f"gaac_gen_dir '{gaac_gen_dir}' does not contain a 'gaac' package. "
+            f"Set gaac_gen_dir to the 'src' subdirectory of the gaac_gen repo "
+            f"(e.g. /path/to/gaac_gen/src)."
+        )
     if gaac_gen_dir not in sys.path:
         sys.path.insert(0, gaac_gen_dir)
 
