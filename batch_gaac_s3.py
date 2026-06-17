@@ -6,6 +6,8 @@ Usage:
     python batch_gaac_s3.py config.yml --dry-run   # list scenes, no processing
 """
 
+from __future__ import annotations
+
 import argparse
 import copy
 import glob
