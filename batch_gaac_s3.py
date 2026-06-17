@@ -21,8 +21,6 @@ import yaml
 # ── Classification band helpers ───────────────────────────────────────────────
 # Classification encoding: 0=clear_land, 1=clear_water,
 #                          2=cloud_land,  3=cloud_water, 255=invalid
-_CLEAR_WATER_VALUE = 1
-
 
 def get_clear_water_pct(tif_path: str) -> float | None:
     """Return the fraction (0–100) of clear-water pixels in the classification band.
@@ -35,12 +33,12 @@ def get_clear_water_pct(tif_path: str) -> float | None:
             return None
         class_data = src.read(src.count)
 
-    valid_mask = class_data != 255
-    n_valid = valid_mask.sum()
-    if n_valid == 0:
+    n_clear_water = (class_data == 1).sum()
+    n_cloud_water = (class_data == 3).sum()
+    n_total_water = n_clear_water + n_cloud_water
+    if n_total_water == 0:
         return 0.0
-    n_clear_water = (class_data == _CLEAR_WATER_VALUE).sum()
-    return 100.0 * n_clear_water / class_data.size
+    return 100.0 * n_clear_water / n_total_water
 
 
 # ── Config loading ────────────────────────────────────────────────────────────
