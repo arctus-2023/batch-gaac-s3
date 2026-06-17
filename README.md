@@ -20,19 +20,34 @@ clear_water_pct = clear_water_pixels / (clear_water_pixels + cloud_water_pixels)
 
 where pixel classes come from the classification band of the L1 TOA GeoTIFF (0=clear_land, 1=clear_water, 2=cloud_land, 3=cloud_water, 255=invalid).
 
-## Requirements
+## Setup on a new machine
 
-- Python ≥ 3.9, < 3.13
-- [gaac_gen](https://github.com/arctus-2023/gaac_gen) installed and its `src/` directory on `sys.path` (set via `gaac_gen_dir` in the config)
-- ACOLITE (path set via `acolite_dir` in the config or `$gaac_acolite_dir` env var)
-- GDAL/OGR (for GeoPackage export)
-
-Install dependencies with [uv](https://github.com/astral-sh/uv):
+**1. Create the conda environment** (provides GDAL native libs):
 
 ```bash
-uv sync
-source .venv/bin/activate
+conda env create -f gaac_gen/environment.yml
+conda activate gaac
 ```
+
+**2. Clone the batch repo and install Python dependencies:**
+
+```bash
+git clone https://github.com/arctus-2023/batch-gaac-s3.git
+cd batch-gaac-s3
+uv sync
+```
+
+`uv sync` uses `uv.lock` to reproduce the exact package versions. The `.venv` directory is not committed to git.
+
+**3. Install GDAL into the venv** (links against native libs from the conda env):
+
+```bash
+PATH=$CONDA_PREFIX/bin:$PATH \
+GDAL_CONFIG=$CONDA_PREFIX/bin/gdal-config \
+uv pip install --python .venv "gdal==3.10.3"
+```
+
+GDAL is only required for GeoPackage opt-pixel export — the AC pipeline runs without it.
 
 ## Usage
 
