@@ -1,0 +1,55 @@
+# ── Paths ────────────────────────────────────────────────────────────────────
+# Directory containing gaac_gen/src (added to sys.path at runtime)
+gaac_gen_dir: /home/yan/WorkSpace/pycharm_proj/gaac_arctus/gaac_gen/src
+
+# Path to the acolite package root (set as $gaac_acolite_dir env var)
+acolite_dir: /home/yan/WorkSpace/open_source/acolite_origin/acolite
+
+# Folder containing the S3 L1 GeoTIFF images
+l1_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L1/s3_olci/JamesBay/2025
+
+# Root output directory; each scene gets its own sub-folder (<scene>_GAAC/)
+output_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_TEST
+
+# ── Scene filter ─────────────────────────────────────────────────────────────
+# Minimum clear-water percentage (0–100). Scenes below this value are skipped.
+# Clear-water pixels are those with classification value == 1 in the last band.
+# Classification: 0=clear_land, 1=clear_water, 2=cloud_land, 3=cloud_water, 255=invalid
+clear_water_threshold: 5.0
+
+# ── Input type ───────────────────────────────────────────────────────────────
+# ACOTOA  : TOA reflectance produced by ACOLITE (used for S3 OLCI GeoTIFFs)
+# GEETOA  : TOA reflectance downloaded from Google Earth Engine
+input_type: ACOTOA
+
+# ── Cgaac constructor kwargs ─────────────────────────────────────────────────
+cgaac:
+  straylight: false       # include stray-light correction
+  ae_correction: true     # include adjacency-effect correction
+
+# ── Rayleigh & gas correction ─────────────────────────────────────────────────
+rayleigh:
+  proc: acolite           # 'acolite' (LUT-based) or 'gaac' (MLP-based)
+  replace_output: false   # recompute even if output already exists
+  output_rgb: true        # write an enhanced RGB preview after Rayleigh correction
+  use_ancillary: false    # use ancillary atmospheric data (e.g. MERRA-2) for Rayleigh correction
+
+# ── Water masking ─────────────────────────────────────────────────────────────
+masking:
+  method: ndwi            # water-index method (only ndwi supported)
+  threshold: 0.0          # NDWI threshold — pixels above are classified as water
+  replace_output: false   # recompute mask even if it already exists
+  closing: true           # apply morphological closing to fill small holes
+  selem_size: 5           # side length (px) of the square structuring element
+
+# ── Aerosol & AC ─────────────────────────────────────────────────────────────
+aerosol:
+  replace_output: false   # recompute AC output even if it already exists
+  perform_ac: true        # apply the full atmospheric correction after optimisation
+  best_ind: []            # 7-element list to skip GA and use a fixed aerosol solution;
+                          # leave empty ([]) to run GA optimisation automatically
+  fillno: false           # fill no-data pixels before AC (needed for some sensors)
+  smooth: false           # apply spatial smoothing to the output reflectance
+  # smooth_size: 7        # kernel size for smoothing (only used when smooth: true)
+  tile_size: 200        # enable tiled AC; each tile gets its own opt pixel
+                          # (comment out or remove for single-pixel mode)

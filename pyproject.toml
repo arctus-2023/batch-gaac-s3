@@ -1,0 +1,22 @@
+[project]
+name = "batch-gaac-s3"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+    "tensorflow>=2.18",
+    "numpy>=2.0",
+    "rasterio>=1.4",
+    "scikit-image>=0.25",
+    "scikit-learn>=1.6",
+    "scipy>=1.14",
+    "pandas>=2.2",
+    "tqdm>=4.66",
+    "numba>=0.60",
+    "deap>=1.4",
+    "pyyaml>=6.0",
+    "matplotlib>=3.9",
+    "imageio>=2.36",
+    "joblib>=1.4",
+    "netCDF4>=1.7",
+    # gdal must be installed manually: PATH=.../gaac/bin:$PATH GDAL_CONFIG=.../gaac/bin/gdal-config uv pip install --python .venv "gdal==3.10.3"
+]
