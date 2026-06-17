@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import copy
+import csv
+import datetime
 import glob
 import logging
 import os
@@ -157,6 +159,7 @@ def main():
     skipped_threshold = []
     skipped_error     = []
     processed         = []
+    dry_run_rows      = []   # collected only when --dry-run
 
     for scene_f in scenes:
         scene_name = os.path.basename(scene_f)
@@ -170,6 +173,10 @@ def main():
         if cw_pct is None:
             logger.warning(f'[SKIP] {scene_name}: no classification band found')
             skipped_threshold.append(scene_name)
+            if args.dry_run:
+                dry_run_rows.append({'scene': scene_name,
+                                     'clear_water_pct': '',
+                                     'status': 'no_classification_band'})
             continue
 
         logger.info(f'Scene: {scene_name}  clear-water={cw_pct:.1f}%')
@@ -177,11 +184,18 @@ def main():
         if cw_pct < threshold:
             logger.info(f'  → below threshold ({threshold:.1f}%), skipping')
             skipped_threshold.append(scene_name)
+            if args.dry_run:
+                dry_run_rows.append({'scene': scene_name,
+                                     'clear_water_pct': f'{cw_pct:.2f}',
+                                     'status': 'below_threshold'})
             continue
 
         if args.dry_run:
             logger.info(f'  → [DRY-RUN] would process')
             processed.append(scene_name)
+            dry_run_rows.append({'scene': scene_name,
+                                 'clear_water_pct': f'{cw_pct:.2f}',
+                                 'status': 'would_process'})
             continue
 
         # ── Run GAAC ──────────────────────────────────────────────────────────
@@ -210,6 +224,16 @@ def main():
         if args.limit and len(processed) >= args.limit:
             logger.info(f'Reached --limit {args.limit}, stopping.')
             break
+
+    # ── Dry-run CSV export ────────────────────────────────────────────────────
+    if args.dry_run and dry_run_rows:
+        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        csv_f = os.path.join(out_dir, f'dryrun_{ts}.csv')
+        with open(csv_f, 'w', newline='') as fh:
+            writer = csv.DictWriter(fh, fieldnames=['scene', 'clear_water_pct', 'status'])
+            writer.writeheader()
+            writer.writerows(dry_run_rows)
+        logger.info(f'Dry-run summary → {csv_f}')
 
     # ── Summary ───────────────────────────────────────────────────────────────
     logger.info('')
