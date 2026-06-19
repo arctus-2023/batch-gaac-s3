@@ -7,7 +7,10 @@ Batch atmospheric correction of Sentinel-3 OLCI L1 GeoTIFF scenes using [GAAC](h
 The pipeline processes each scene through three stages:
 
 1. **Rayleigh + gas correction** — ACOLITE LUT-based, writes `*_rhor.tif`
-2. **Water masking** — NDWI threshold combined with the classification band (a pixel is accepted as water only when both agree); writes `*_watermask.tif`
+2. **Masking** — combines three independent masks into a single final product (`*_mask.tif`):
+   - *Water*: pure NDWI (`*_watermask.tif`, `0=null, 5=water`)
+   - *Cloud*: classification band values `{2, 3}` (cloud over land or water)
+   - *Snow/ice*: dual Otsu threshold on NDSI and Oa02 (blue), computed from permanent water pixels in the classification band; falls back to fixed thresholds if the classification band is absent
 3. **Aerosol correction** — GA optimisation + adjacency-effect and sky/sun-glint correction; writes `*_rhor_rhow.tif` and `*_rhor_rhoadj.tif`
 
 When `tile_size` is set, the aerosol step runs one GA optimisation per tile and interpolates the result spatially across the scene (tiled AC). Optimization pixel locations are exported automatically as `*_rhor_opt_pixels.gpkg`.
@@ -129,7 +132,8 @@ Each processed scene produces a `<scene_name>_GAAC/` subdirectory containing:
 | File | Description |
 |------|-------------|
 | `*_rhor.tif` | Rayleigh-corrected reflectance |
-| `*_watermask.tif` | Water mask (5=clear water, 6=cloud water) |
+| `*_watermask.tif` | Pure NDWI water mask (`0=null, 5=water`) |
+| `*_mask.tif` | Final combined mask (NDWI + cloud + snow); S3 scheme: `0=clear water, 1=cloud/water, 2=snow/water, 3=cloud+snow/water`, `50–53` over permanent land, `255=nodata` |
 | `*_rhor_rhow.tif` | Water-leaving reflectance |
 | `*_rhor_rhoadj.tif` | Adjacency-corrected reflectance |
 | `*_rhor_rgb.tif` | RGB preview with optimization pixel(s) marked |
