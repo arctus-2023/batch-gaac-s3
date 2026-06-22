@@ -108,6 +108,9 @@ def main():
     parser.add_argument('--ndwi-threshold', type=float, default=None, metavar='T',
                         help='Override the NDWI water-mask threshold from the config '
                              '(e.g. 0.3); pixels with NDWI > T are classified as water')
+    parser.add_argument('--overwrite', action='store_true', default=False,
+                        help='Reprocess scenes even if the output folder already exists '
+                             '(default: skip scenes whose <scene>_GAAC/ folder is present)')
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -157,6 +160,7 @@ def main():
     _parameters = None
 
     skipped_threshold = []
+    skipped_existing  = []
     skipped_error     = []
     processed         = []
     dry_run_rows      = []   # collected only when --dry-run
@@ -196,6 +200,17 @@ def main():
             dry_run_rows.append({'scene': scene_name,
                                  'clear_water_pct': f'{cw_pct:.2f}',
                                  'status': 'would_process'})
+            continue
+
+        # ── Skip if output already exists ─────────────────────────────────────
+        scene_out_dir = os.path.join(out_dir, scene_name.replace('.tif', '_GAAC'))
+        if os.path.isdir(scene_out_dir) and not args.overwrite:
+            logger.info(f'  → output exists, skipping ({scene_out_dir})')
+            skipped_existing.append(scene_name)
+            if args.dry_run:
+                dry_run_rows.append({'scene': scene_name,
+                                     'clear_water_pct': f'{cw_pct:.2f}',
+                                     'status': 'output_exists'})
             continue
 
         # ── Run GAAC ──────────────────────────────────────────────────────────
@@ -238,9 +253,10 @@ def main():
     # ── Summary ───────────────────────────────────────────────────────────────
     logger.info('')
     logger.info('===== Batch summary =====')
-    logger.info(f'  Processed : {len(processed)}')
+    logger.info(f'  Processed           : {len(processed)}')
     logger.info(f'  Skipped (threshold) : {len(skipped_threshold)}')
-    logger.info(f'  Failed    : {len(skipped_error)}')
+    logger.info(f'  Skipped (existing)  : {len(skipped_existing)}')
+    logger.info(f'  Failed              : {len(skipped_error)}')
     if skipped_error:
         for s in skipped_error:
             logger.info(f'    FAILED: {s}')
