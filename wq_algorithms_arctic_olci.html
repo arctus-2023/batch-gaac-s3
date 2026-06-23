@@ -1,0 +1,1616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Water Quality Retrieval Algorithms — Sentinel-3 OLCI | Arctic &amp; Subarctic</title>
+  <style>
+    /* ── base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #f5f7fa;
+      --card:     #ffffff;
+      --border:   #dde3ec;
+      --accent:   #1a56a8;
+      --accent2:  #0e7c7b;
+      --warn:     #c85000;
+      --text:     #1e2535;
+      --muted:    #5a6480;
+      --code-bg:  #eef2f8;
+      --radius:   8px;
+    }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      font-size: 14.5px;
+      line-height: 1.65;
+      background: var(--bg);
+      color: var(--text);
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── layout ── */
+    .page { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+    /* ── hero ── */
+    .hero {
+      background: linear-gradient(135deg, #0d2b5e 0%, #1a56a8 55%, #0e7c7b 100%);
+      color: #fff;
+      border-radius: var(--radius);
+      padding: 2.5rem 2.5rem 2rem;
+      margin-bottom: 2rem;
+    }
+    .hero h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: .4rem; }
+    .hero .subtitle { opacity: .85; font-size: 1.0rem; margin-bottom: 1rem; }
+    .hero .meta { font-size: .85rem; opacity: .7; }
+
+    /* ── toc ── */
+    .toc-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.2rem 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .toc-card h2 { font-size: 1rem; font-weight: 600; color: var(--accent); margin-bottom: .6rem; }
+    .toc-card ol { padding-left: 1.4rem; }
+    .toc-card li { margin-bottom: .25rem; }
+
+    /* ── section headers ── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: .7rem;
+      margin: 2.5rem 0 1rem;
+    }
+    .section-badge {
+      background: var(--accent);
+      color: #fff;
+      border-radius: 6px;
+      padding: .25rem .65rem;
+      font-size: .8rem;
+      font-weight: 700;
+      letter-spacing: .04em;
+      white-space: nowrap;
+    }
+    .section-header h2 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--text);
+      border-bottom: 3px solid var(--accent);
+      padding-bottom: .25rem;
+      flex: 1;
+    }
+
+    /* ── info boxes ── */
+    .info-box {
+      background: #e8f0fb;
+      border-left: 4px solid var(--accent);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: .8rem 1.1rem;
+      margin-bottom: 1.4rem;
+      font-size: .9rem;
+      color: #1e2a40;
+    }
+    .warn-box {
+      background: #fff3e8;
+      border-left: 4px solid var(--warn);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: .8rem 1.1rem;
+      margin-bottom: 1.4rem;
+      font-size: .9rem;
+      color: #3a1500;
+    }
+
+    /* ── algorithm card ── */
+    .algo-grid {
+      display: grid;
+      gap: 1.2rem;
+      margin-bottom: 1rem;
+    }
+    .algo-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .algo-card-header {
+      display: flex;
+      align-items: center;
+      gap: .7rem;
+      padding: .75rem 1.1rem;
+      background: #f0f4fb;
+      border-bottom: 1px solid var(--border);
+    }
+    .algo-num {
+      background: var(--accent);
+      color: #fff;
+      border-radius: 50%;
+      width: 1.7rem; height: 1.7rem;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .8rem; font-weight: 700; flex-shrink: 0;
+    }
+    .algo-title { font-size: 1.02rem; font-weight: 700; }
+    .algo-type { font-size: .78rem; color: var(--muted); font-style: italic; }
+    .stars { color: #e89a00; font-size: 1rem; }
+    .algo-card-body { padding: 1rem 1.1rem; }
+    .algo-card-body table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .88rem;
+    }
+    .algo-card-body table td:first-child {
+      font-weight: 600;
+      color: var(--muted);
+      width: 130px;
+      vertical-align: top;
+      padding: .3rem .5rem .3rem 0;
+    }
+    .algo-card-body table td {
+      padding: .3rem .5rem .3rem 0;
+      vertical-align: top;
+    }
+    .algo-card-body tr + tr td { border-top: 1px solid #eef0f4; }
+
+    /* ── formula ── */
+    .formula {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: .55rem .9rem;
+      font-family: "Fira Code", "Cascadia Code", "Consolas", monospace;
+      font-size: .83rem;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      margin: .2rem 0;
+    }
+
+    /* ── OLCI band table ── */
+    .band-table-wrap { overflow-x: auto; margin-bottom: 2rem; }
+    .band-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .86rem;
+    }
+    .band-table th {
+      background: var(--accent);
+      color: #fff;
+      padding: .5rem .7rem;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .band-table td {
+      padding: .38rem .7rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .band-table tr:nth-child(even) td { background: #f4f7fc; }
+    .band-table tr:hover td { background: #e8eef8; }
+    .used { color: var(--accent2); font-weight: 700; }
+    .o2a { color: var(--warn); font-style: italic; }
+
+    /* ── summary table ── */
+    .summary-wrap { overflow-x: auto; }
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .84rem;
+    }
+    .summary-table th {
+      background: #1e2535;
+      color: #fff;
+      padding: .5rem .7rem;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .summary-table td {
+      padding: .38rem .7rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .summary-table tr:nth-child(even) td { background: #f4f7fc; }
+    .summary-table .param-group td { background: #e2eaf8; font-weight: 700; border-top: 2px solid #b0c0e0; }
+
+    /* ── reco box ── */
+    .reco-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+    .reco-item {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: .9rem 1.1rem;
+    }
+    .reco-item h4 {
+      font-size: .9rem;
+      color: var(--accent);
+      font-weight: 700;
+      margin-bottom: .4rem;
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: .2rem;
+    }
+    .reco-item ul { padding-left: 1.2rem; font-size: .86rem; }
+    .reco-item li { margin-bottom: .25rem; }
+
+    /* ── ref list ── */
+    .ref-list { padding-left: 1.4rem; font-size: .84rem; line-height: 1.7; }
+    .ref-list li { margin-bottom: .4rem; }
+
+    /* ── footer ── */
+    footer {
+      text-align: center;
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: .82rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+<!-- ═══════════════════════ HERO ═══════════════════════ -->
+<div class="hero">
+  <h1>Water Quality Retrieval Algorithms<br>Sentinel-3 OLCI — Arctic &amp; Subarctic Coastal Waters</h1>
+  <div class="subtitle">
+    Candidate algorithms for CDOM · Chlorophyll-a · SPM/TSM · Turbidity<br>
+    Focus region: James Bay / Hudson Bay and Canadian/Russian Arctic coastal waters
+  </div>
+  <div class="meta">Compiled: June 2026 &nbsp;|&nbsp; Sensor: Sentinel-3A/B OLCI (300 m) &nbsp;|&nbsp; Project: GAAC/ARCTUS batch pipeline</div>
+</div>
+
+<!-- ═══════════════════════ TOC ═══════════════════════ -->
+<div class="toc-card">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#bands">Sentinel-3 OLCI Band Reference</a></li>
+    <li><a href="#cdom">CDOM — Colored Dissolved Organic Matter</a></li>
+    <li><a href="#chla">Chlorophyll-a (Chla)</a></li>
+    <li><a href="#spm">SPM / TSM — Suspended Particulate Matter</a></li>
+    <li><a href="#turbidity">Turbidity</a></li>
+    <li><a href="#processors">Processor-Level (Combined) Algorithms</a></li>
+    <li><a href="#summary">Summary Table &amp; Arctic Applicability Scores</a></li>
+    <li><a href="#recommendations">Recommendations for James Bay / Hudson Bay</a></li>
+    <li><a href="#refs">Key References</a></li>
+  </ol>
+</div>
+
+<div class="info-box">
+  <strong>Context.</strong> James Bay and Hudson Bay are optically complex Case-2 subarctic waters
+  dominated by allochthonous CDOM from large river inputs (Nelson, Hayes, Nottaway, La Grande rivers),
+  high mineral SPM from permafrost/glacial erosion, and moderate seasonal phytoplankton blooms.
+  Standard open-ocean algorithms (OC4, GSM, GIOP) systematically fail under these conditions.
+  All algorithms below are evaluated for applicability to this optical regime.
+  <br><br>
+  <strong>Arctic challenge summary.</strong>
+  CDOM absorption dominates 400–560 nm → blue-band Chla algorithms overestimate 2–10×;
+  high SPM saturates red bands → switching NIR algorithm needed;
+  low solar angles in arctic summer → Polymer AC preferred over Black Pixel Assumption.
+</div>
+
+<!-- ═══════════════════════ OLCI BANDS ═══════════════════════ -->
+<div id="bands" class="section-header">
+  <span class="section-badge">§1</span>
+  <h2>Sentinel-3 OLCI Band Reference</h2>
+</div>
+
+<div class="band-table-wrap">
+<table class="band-table">
+  <thead>
+    <tr>
+      <th>Band</th><th>λ centre (nm)</th><th>Δλ (nm)</th><th>Primary Use</th><th>WQ relevance</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Oa01</td><td>400.0</td><td>15</td><td>Yellow substance / turbidity</td><td>CDOM low λ</td></tr>
+    <tr><td class="used">Oa02</td><td class="used">412.5</td><td>10</td><td class="used">Yellow substance</td><td class="used">CDOM reference band — aCDOM(412)</td></tr>
+    <tr><td class="used">Oa03</td><td class="used">442.5</td><td>10</td><td class="used">Chlorophyll</td><td class="used">CDOM / Chla blue absorption</td></tr>
+    <tr><td class="used">Oa04</td><td class="used">490.0</td><td>10</td><td class="used">Chlorophyll high</td><td class="used">Chla OC4 / CDOM ratio</td></tr>
+    <tr><td class="used">Oa05</td><td class="used">510.0</td><td>10</td><td class="used">Chlorophyll, sediment</td><td class="used">OC4 blue-green pivot</td></tr>
+    <tr><td class="used">Oa06</td><td class="used">560.0</td><td>10</td><td class="used">Chlorophyll reference</td><td class="used">OC4 green denominator; SPM ratio</td></tr>
+    <tr><td class="used">Oa07</td><td class="used">620.0</td><td>10</td><td class="used">Sediment loading</td><td class="used">Low-turbidity branch (turbidity)</td></tr>
+    <tr><td class="used">Oa08</td><td class="used">665.0</td><td>10</td><td class="used">Chlorophyll, yellow sub.</td><td class="used">NIR-red Chla; SPM primary band; Turbidity low</td></tr>
+    <tr><td>Oa09</td><td>673.75</td><td>7.5</td><td>Chlorophyll fluorescence</td><td>FLH shoulder</td></tr>
+    <tr><td class="used">Oa10</td><td class="used">681.25</td><td>7.5</td><td class="used">Chlorophyll fluorescence peak</td><td class="used">FLH peak; Gons algorithm</td></tr>
+    <tr><td class="used">Oa11</td><td class="used">708.75</td><td>10</td><td class="used">Chlorophyll, sediment</td><td class="used">NIR-red Chla; mid-turbidity branch; NDCI</td></tr>
+    <tr><td class="used">Oa12</td><td class="used">753.75</td><td>7.5</td><td class="used">O2 absorption / aerosol</td><td class="used">bbp proxy; IOP inversion</td></tr>
+    <tr><td class="o2a">Oa13</td><td class="o2a">761.25</td><td class="o2a">2.5</td><td class="o2a">O₂ A-band</td><td class="o2a">Not used for water quality (atmospheric)</td></tr>
+    <tr><td class="o2a">Oa14</td><td class="o2a">764.375</td><td class="o2a">3.75</td><td class="o2a">O₂ A-band reference</td><td class="o2a">Atmospheric only</td></tr>
+    <tr><td class="o2a">Oa15</td><td class="o2a">767.5</td><td class="o2a">2.5</td><td class="o2a">O₂ A-band</td><td class="o2a">Atmospheric only</td></tr>
+    <tr><td class="used">Oa16</td><td class="used">778.75</td><td>15</td><td class="used">Atmosphere correction</td><td class="used">bbp estimation (Gons); IOP inversion</td></tr>
+    <tr><td class="used">Oa17</td><td class="used">865.0</td><td>20</td><td class="used">Aerosol reference</td><td class="used">High-turbidity SPM/Turbidity; NIR switch</td></tr>
+    <tr><td>Oa18</td><td>885.0</td><td>10</td><td>Water vapour reference</td><td>Near-NIR; rarely used for WQ</td></tr>
+    <tr><td>Oa19</td><td>900.0</td><td>10</td><td>Water vapour absorption</td><td>Atmospheric</td></tr>
+    <tr><td>Oa20</td><td>940.0</td><td>20</td><td>Water vapour absorption</td><td>Atmospheric</td></tr>
+    <tr><td>Oa21</td><td>1020.0</td><td>40</td><td>Aerosol / cloud screening</td><td>Rarely used for WQ</td></tr>
+  </tbody>
+</table>
+</div>
+<p style="font-size:.82rem;color:var(--muted);margin-top:-.8rem;margin-bottom:2rem;">
+  <span class="used">Blue = actively used for WQ retrieval.</span>
+  <span class="o2a">&nbsp;Orange italic = O₂ absorption bands; not suitable for in-water retrieval.</span>
+</p>
+
+
+<!-- ═══════════════════════ CDOM ═══════════════════════ -->
+<div id="cdom" class="section-header">
+  <span class="section-badge">§2</span>
+  <h2>CDOM — Colored Dissolved Organic Matter</h2>
+</div>
+
+<div class="info-box">
+  Target variable: absorption coefficient <strong>a<sub>CDOM</sub>(412)</strong> or
+  <strong>a<sub>CDOM</sub>(443)</strong> [m⁻¹], or dissolved organic carbon (DOC) [mg L⁻¹] derived therefrom.
+  Arctic/subarctic rivers export massive allochthonous DOC. CDOM dominates absorption below 490 nm and
+  renders blue-band Chla algorithms unreliable. Band ratios at 412–490 nm are the most diagnostic.
+</div>
+
+<div class="algo-grid">
+
+  <!-- CDOM 1 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">1</div>
+      <div>
+        <div class="algo-title">Matsuoka et al. (2013) — Semi-Analytical GIOP | Southern Beaufort Sea</div>
+        <div class="algo-type">Semi-analytical GIOP inversion with regional parametrisation &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">a(λ) = a_w(λ) + a_ph(λ) + a_CDOM(λ) + a_NAP(λ)
+a_NAP(443) = α · bbp(443)^β        [NAP separated from CDOM]
+a_CDOM(443) = a_CDM(443) − a_NAP(443)
+a_CDOM(λ)  = a_CDOM(443) · exp[−S · (λ − 443)],   S ≈ 0.018 nm⁻¹</div>
+            Coefficients α, β fitted from Southern Beaufort Sea field data.
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa02 (412.5), Oa03 (442.5), Oa04 (490), Oa05 (510), Oa06 (560), Oa08 (665) nm</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>a<sub>CDOM</sub>(443) = 0.01–1.5 m⁻¹; DOC: 55 + 357 × a<sub>CDOM</sub>(443) [µM]</td>
+        </tr>
+        <tr>
+          <td>Uncertainty</td>
+          <td>~35% oceanic waters; ~50% coastal river-dominated zones</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Matsuoka, A. et al. (2013). <em>Biogeosciences</em>, 10, 917–927. <a href="https://doi.org/10.5194/bg-10-917-2013" target="_blank">doi:10.5194/bg-10-917-2013</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>Developed specifically for the Mackenzie River plume / southern Beaufort Sea. The co-derived DOC formula
+          (Matsuoka et al., 2012) is widely cited for Canadian Arctic shelf waters. Best proxy available for Hudson Bay
+          open-shelf CDOM; may underperform in very shallow nearshore James Bay river-plume pixels.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- CDOM 2 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">2</div>
+      <div>
+        <div class="algo-title">Glukhovets et al. (2020) — Empirical Band-Ratio | Arctic Seas (OLCI)</div>
+        <div class="algo-type">Empirical log-linear regression on OLCI Rrs ratio &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">log₁₀[a_CDOM(443)] = a₀ + a₁ · log₁₀[Rrs(442.5) / Rrs(490)]</div>
+            Coefficients a₀, a₁ fitted from Russian Arctic expedition data (White Sea, Barents, Kara, Laptev).
+            Alternative ratio Rrs(412)/Rrs(490) also evaluated.
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa03 (442.5) / Oa04 (490) nm — primary; Oa02 (412.5) optional</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>a<sub>CDOM</sub>(443) ≈ 0.03–1.2 m⁻¹</td>
+        </tr>
+        <tr>
+          <td>Uncertainty</td>
+          <td>40–80% for uncalibrated algorithms; regional re-fit significantly reduces errors</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Glukhovets, D. et al. (2020). <em>Remote Sensing</em>, 12(19), 3210. <a href="https://doi.org/10.3390/rs12193210" target="_blank">doi:10.3390/rs12193210</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>First study presenting actual Sentinel-3 OLCI CDOM uncertainties across Russian Arctic seas. Evaluated five
+          algorithms in direct OLCI matchups; the 442/490 ratio consistently outperformed all others in high-terrigenous-CDOM
+          Arctic shelf waters. Directly applicable to James Bay if local coefficients are re-fitted.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- CDOM 3 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">3</div>
+      <div>
+        <div class="algo-title">El Kassar / Juhls et al. (2023) — OLCI DOC/CDOM | Lena River / Laptev Sea</div>
+        <div class="algo-type">Empirical multi-band regression after Polymer AC &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">ln[a_CDOM(412)] = b₀ + b₁·ln[Rrs(412)/Rrs(443)] + b₂·ln[Rrs(412)/Rrs(490)]
+DOC [mg L⁻¹] = c₀ + c₁ · a_CDOM(412)          [river-specific DOC–aCDOM regression]</div>
+            Rrs from Polymer atmospheric correction (critical for arctic low-sun-angle conditions).
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa02 (412.5), Oa03 (442.5), Oa04 (490) nm</td>
+        </tr>
+        <tr>
+          <td>Performance</td>
+          <td>MAPD = 10.89%, RMSE = 1.55 mg L⁻¹, r² = 0.92 (n = 489 matchups, 2018–2021)</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>El Kassar, J., Juhls, B. et al. (2023). <em>Frontiers in Marine Science</em>, 10, 1082109. <a href="https://doi.org/10.3389/fmars.2023.1082109" target="_blank">doi:10.3389/fmars.2023.1082109</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>Validated in Siberian Arctic river delta (Lena/Laptev) — the methodological blueprint most transferable
+          to James Bay/Hudson Bay river-plume CDOM monitoring. Uses Polymer AC specifically to handle low sun angles.
+          Dense field campaign validation (489 matchups) is the largest for Arctic river-influenced OLCI work to date.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- CDOM 4 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">4</div>
+      <div>
+        <div class="algo-title">Lewis &amp; Arrigo (2020) — AO.GSM / AOReg.emp | Pan-Arctic</div>
+        <div class="algo-type">Arctic-optimized GSM semi-analytical + empirical polynomial &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">log₁₀[a_CDOM(443)] = A₀ + A₁·X + A₂·X² + A₃·X³ + A₄·X⁴
+X = log₁₀[ max(Rrs(443), Rrs(490), Rrs(510)) / Rrs(560) ]</div>
+            Polynomial coefficients re-fitted from the largest pan-Arctic in situ bio-optical dataset assembled to date
+            (replaces standard OC4 global coefficients).
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa03 (442.5), Oa04 (490), Oa05 (510), Oa06 (560) nm</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>a<sub>CDOM</sub>(443) = 0.005–1.5 m⁻¹; Chla simultaneously (see §3)</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Lewis, K.M. &amp; Arrigo, K.R. (2020). <em>Journal of Geophysical Research: Oceans</em>, 125, e2019JC015706. <a href="https://doi.org/10.1029/2019JC015706" target="_blank">doi:10.1029/2019JC015706</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>Purpose-built for the full Arctic Ocean using pan-Arctic in situ dataset. Demonstrates OC4/GSM overestimate
+          CDOM in Arctic. Best suited for open Hudson Bay / offshore shelf; blue bands still affected in most CDOM-rich
+          nearshore James Bay river plumes. Excellent pan-Arctic benchmark.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- CDOM 5 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">5</div>
+      <div>
+        <div class="algo-title">Mabit, Araújo, Singh &amp; Bélanger (2022) — Québec Coastal / James Bay Eastern Shore</div>
+        <div class="algo-type">Empirical power-law regression (blue/green ratio) &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">a_CDOM(443) = α · [Rrs(443) / Rrs(560)]^β</div>
+            Coefficients α, β calibrated from field campaigns along the lower St. Lawrence estuary and eastern
+            James Bay coast. Secondary predictor: Rrs(412)/Rrs(560).
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa03 (442.5), Oa06 (560) nm — primary; Oa02 (412.5) secondary</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>a<sub>CDOM</sub>(443) ≈ 0.1–3.5 m⁻¹ (covers highly CDOM-dominated estuarine plumes)</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Mabit, R. et al. (2022). <em>Frontiers in Remote Sensing</em>, 3, 834908. <a href="https://doi.org/10.3389/frsen.2022.834908" target="_blank">doi:10.3389/frsen.2022.834908</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td><strong>The only published WQ algorithm specifically calibrated with eastern James Bay + St. Lawrence
+          estuary in situ data.</strong> SPM algorithm from the same study (see §4) ensures a consistent
+          multi-parameter framework. Primary validation was Landsat-8 OLI / Sentinel-2 MSI but band definitions
+          (443, 560 nm) match OLCI Oa03/Oa06 directly; minor recalibration recommended.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+</div><!-- end algo-grid CDOM -->
+
+
+<!-- ═══════════════════════ CHLA ═══════════════════════ -->
+<div id="chla" class="section-header">
+  <span class="section-badge">§3</span>
+  <h2>Chlorophyll-a (Chla)</h2>
+</div>
+
+<div class="warn-box">
+  <strong>CDOM bias warning.</strong> Standard blue-green band-ratio algorithms (OC3, OC4, OC4Me) overestimate
+  Chla by 2–10× in James Bay/Hudson Bay because CDOM co-absorbs at 443–490 nm, mimicking phytoplankton.
+  NIR-red algorithms (665/709 nm) that operate where CDOM absorption is negligible are strongly preferred
+  for nearshore, river-plume, and eutrophic subarctic pixels.
+</div>
+
+<div class="algo-grid">
+
+  <!-- Chla 1 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">1</div>
+      <div>
+        <div class="algo-title">OC4Me — ESA/EUMETSAT Operational Sentinel-3 Algorithm</div>
+        <div class="algo-type">Empirical maximum band-ratio polynomial &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★</span> (reference baseline only)</div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">log₁₀(Chla) = A₀ + A₁·X + A₂·X² + A₃·X³ + A₄·X⁴
+X = log₁₀[ max(Rrs(442.5), Rrs(490), Rrs(510)) / Rrs(560) ]
+
+OLCI coefficients: A₀=0.4503, A₁=−3.2595, A₂=3.5227, A₃=−3.3594, A₄=0.9496</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa03 (442.5), Oa04 (490), Oa05 (510), Oa06 (560) nm</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>Chla ≈ 0.03–30 mg m⁻³ (Case-1 waters)</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>ESA OLCI L2 ATBD (2013). <em>PUG-ATBD-0012</em>. Based on O'Reilly et al. (1998) <em>J. Geophys. Res.</em>, 103(C11), 24937. <a href="https://doi.org/10.1029/98JC02160" target="_blank">doi:10.1029/98JC02160</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>ESA standard L2 OL_2_WFR product. <strong>Systematically overestimates Chla 2–10× in CDOM-rich arctic
+          waters</strong> (Lewis &amp; Arrigo 2020). Use as reference product for comparison only; do not rely on it for
+          primary Chla retrieval in James Bay nearshore areas. Useful for offshore open Hudson Bay.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Chla 2 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">2</div>
+      <div>
+        <div class="algo-title">Gons et al. (2005) — Semi-Analytical NIR-Red (CDOM-Insensitive)</div>
+        <div class="algo-type">Semi-analytical 2-band NIR-red model &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">Chla = [ (Rrs(708) / Rrs(665)) · a_w(665) − a_w(708) + b_bp ] / a_ph*(665)
+
+where:
+  a_w(665)  ≈ 0.401 m⁻¹    (pure water absorption at 665 nm)
+  a_w(708)  ≈ 0.703 m⁻¹    (pure water absorption at 708.75 nm)
+  b_bp      = 1.61 · Rrs(779) / (0.082 − 0.6 · Rrs(779))   [from Oa16]
+  a_ph*(665) ≈ 0.0149 m² mg⁻¹   (chlorophyll-specific absorption)</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa08 (665), Oa11 (708.75), Oa16 (778.75) nm</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>Chla ≈ 3–185 mg m⁻³; robust in turbid, CDOM-rich, eutrophic waters</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Gons, H.J., Rijkeboer, M., Ruddick, K.G. (2005). <em>Journal of Plankton Research</em>, 27(2), 125–133. <a href="https://doi.org/10.1093/plankt/fbh151" target="_blank">doi:10.1093/plankt/fbh151</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>Operates entirely in the red/NIR where CDOM absorption is negligible → immune to the CDOM
+          contamination problem of blue-band algorithms. Extensively validated on MERIS (same bands as OLCI).
+          Binding et al. (2011) applied Gons-type NIR-red to Great Lakes and Hudson Bay coastal MERIS data with
+          good results. <strong>Recommended first choice for CDOM-rich nearshore James Bay Chla retrieval.</strong></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Chla 3 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">3</div>
+      <div>
+        <div class="algo-title">NDCI — Normalized Difference Chlorophyll Index (Mishra &amp; Mishra, 2012)</div>
+        <div class="algo-type">Empirical normalized difference index &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">NDCI = (Rrs(708) − Rrs(665)) / (Rrs(708) + Rrs(665))
+
+Chla = 14.039 + 86.115 · NDCI + 194.325 · NDCI²   [original calibration, r²=0.95]
+     (regional polynomial re-fit recommended for arctic waters)</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa08 (665), Oa11 (708.75) nm</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>Chla ≈ 1–150 mg m⁻³; turbid productive estuaries</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Mishra, S. &amp; Mishra, D.R. (2012). <em>Remote Sensing of Environment</em>, 117, 394–406. <a href="https://doi.org/10.1016/j.rse.2011.10.016" target="_blank">doi:10.1016/j.rse.2011.10.016</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>CDOM-insensitive (665 and 708 nm only). Particularly relevant for James Bay spring blooms and
+          estuarine nutrient-rich plumes. Available as a direct SNAP product for OLCI. Calibration coefficients
+          need regional re-fitting — cold arctic water temperatures affect a<sub>ph</sub>*(665).</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Chla 4 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">4</div>
+      <div>
+        <div class="algo-title">Lewis &amp; Arrigo (2020) — Arctic-Optimized OC4 Polynomial (AOReg.emp)</div>
+        <div class="algo-type">Empirical MBR polynomial re-fitted to pan-Arctic in situ data &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">log₁₀(Chla) = A₀ + A₁·X + A₂·X² + A₃·X³ + A₄·X⁴
+X = log₁₀[ max(Rrs(443), Rrs(490), Rrs(510)) / Rrs(560) ]
+
+Arctic coefficients (approx.):
+A₀=0.3255, A₁=−2.7677, A₂=1.4927, A₃=−1.2082, A₄=−0.5966</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa03 (442.5), Oa04 (490), Oa05 (510), Oa06 (560) nm</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>Chla ≈ 0.05–15 mg m⁻³; pan-Arctic open shelf</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Lewis, K.M. &amp; Arrigo, K.R. (2020). <em>Journal of Geophysical Research: Oceans</em>, 125, e2019JC015706. <a href="https://doi.org/10.1029/2019JC015706" target="_blank">doi:10.1029/2019JC015706</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>Reduces CDOM bias by re-fitting to Arctic bio-optical training data. Still uses blue bands →
+          may overestimate in the most CDOM-rich nearshore James Bay pixels. Best for open Hudson Bay /
+          offshore shelf where CDOM loads are moderate. Provides a consistent CDOM + Chla retrieval from
+          a single algorithm framework.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Chla 5 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">5</div>
+      <div>
+        <div class="algo-title">FLH — Fluorescence Line Height (Letelier &amp; Abbott 1996 / OLCI)</div>
+        <div class="algo-type">Semi-analytical baseline-subtracted fluorescence index &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">FLH = L_w(681.25) − 0.5 · [L_w(665) + L_w(708.75)]
+
+Chla ∝ FLH / [PAR · a_ph*(681) · (1 − ω_p)]   [quasi-analytical form]</div>
+            Linear baseline drawn between Oa08 and Oa11; Oa10 (681.25 nm) captures the Chla fluorescence peak.
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa08 (665), Oa10 (681.25), Oa11 (708.75) nm</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>Chla ≈ 0.05–50 mg m⁻³; most reliable at moderate concentrations (1–30 mg m⁻³)</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Letelier, R.M. &amp; Abbott, M.R. (1996). <em>Geophysical Research Letters</em>, 23(16), 2111–2114. <a href="https://doi.org/10.1029/96GL01228" target="_blank">doi:10.1029/96GL01228</a><br>
+          OLCI adaptation: Gower, J.F.R. et al. (2004). MCI described in ESA OLCI ATBD.</td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>CDOM-insensitive (all bands in red). Useful for detecting Chla spatial patterns (bloom mapping)
+          but less accurate for absolute concentration due to photoacclimation effects in arctic phytoplankton,
+          variable quantum yield at low temperatures, and NPQ quenching. Best used as a qualitative bloom indicator
+          or in multi-algorithm ensemble.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Chla 6 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">6</div>
+      <div>
+        <div class="algo-title">Pahlevan et al. (2020) — MDN Machine-Learning for OLCI / MSI</div>
+        <div class="algo-type">Mixture Density Network (MDN) ensemble ML, all OLCI visible bands &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            Input: [Rrs(412), Rrs(443), Rrs(490), Rrs(510), Rrs(560), Rrs(665), Rrs(674), Rrs(681), Rrs(709), Rrs(754), Rrs(779), Rrs(865)] → MDN → Chla + uncertainty
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa02–Oa12, Oa16, Oa17 (full spectrum 412–865 nm)</td>
+        </tr>
+        <tr>
+          <td>Performance</td>
+          <td>Significantly outperforms OC4Me across Case-2 inland and coastal waters; r² ≈ 0.79 in high-latitude waters</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Pahlevan, N. et al. (2020). <em>Remote Sensing of Environment</em>, 240, 111604. <a href="https://doi.org/10.1016/j.rse.2020.111604" target="_blank">doi:10.1016/j.rse.2020.111604</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>ML approaches trained on large mixed Case-2 datasets better capture the nonlinear optical
+          complexity of CDOM+SPM-dominated northern waters than any single empirical formula. Main risk:
+          model performance depends on training data representativeness — models without James Bay / Hudson Bay
+          samples may carry biases. The MDN also outputs per-pixel uncertainty estimates (useful for QA/QC).</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+</div><!-- end algo-grid Chla -->
+
+
+<!-- ═══════════════════════ SPM ═══════════════════════ -->
+<div id="spm" class="section-header">
+  <span class="section-badge">§4</span>
+  <h2>SPM / TSM — Suspended Particulate Matter</h2>
+</div>
+
+<div class="info-box">
+  Target variable: total suspended matter <strong>SPM</strong> or <strong>TSM</strong> [g m⁻³].
+  James Bay SPM is dominated by fine-grained mineral sediment (clay/silt) from the Nelson, Hayes, and Nottaway rivers.
+  Concentrations span &lt;0.5 g m⁻³ (open offshore) to &gt;100 g m⁻³ (near river mouths).
+  This large dynamic range demands a switching scheme between the 665 nm red band (moderate turbidity)
+  and the 865 nm NIR band (high turbidity, when the red saturates).
+</div>
+
+<div class="algo-grid">
+
+  <!-- SPM 1 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">1</div>
+      <div>
+        <div class="algo-title">Nechad, Ruddick &amp; Park (2010) — Generic Single-Band Semi-Empirical</div>
+        <div class="algo-type">Semi-empirical single-band (665 or 865 nm) &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">SPM [g m⁻³] = (A_SPM · ρw(λ)) / (1 − ρw(λ)/C_SPM) + B_SPM
+where ρw(λ) = π · Rrs(λ)
+
+Published OLCI band coefficients:
+  λ=665 nm (Oa08): A=355.85, C=0.1728, B=1.74
+  λ=708 nm (Oa11): A=496.52, C=0.2112, B=1.74
+  λ=865 nm (Oa17): A=3077.2, C=0.2112, B=−2.40</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa08 (665) primary; Oa11 (708.75) transitional; Oa17 (865) high turbidity</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>SPM ≈ 0.5–1000 g m⁻³ (with switching between bands)</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Nechad, B., Ruddick, K.G., Park, Y. (2010). <em>Remote Sensing of Environment</em>, 114(4), 854–866. <a href="https://doi.org/10.1016/j.rse.2009.11.022" target="_blank">doi:10.1016/j.rse.2009.11.022</a><br>
+          Updated LUT: Nechad, B. et al. (2016). <em>Earth System Science Data</em>, 8, 173–196. <a href="https://doi.org/10.5194/essd-8-173-2016" target="_blank">doi:10.5194/essd-8-173-2016</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>Semi-analytical form gives moderate cross-region generalizability (~27–29% uncertainty without
+          recalibration). The 708 nm band (Oa11) — available on OLCI/MERIS but not MODIS/Landsat — is particularly
+          useful for 10–100 g m⁻³ range typical of subarctic river plumes. Re-fitting A and C using local
+          James Bay in situ SPM vs. Rrs strongly recommended.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- SPM 2 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">2</div>
+      <div>
+        <div class="algo-title">Dogliotti et al. (2015) — Switching Algorithm (Red + NIR)</div>
+        <div class="algo-type">Semi-empirical switching with linear blend zone &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">Low turbidity (T &lt; 7 FNU):   use λ_red ≈ 665 nm (Oa08)
+  T [FNU] = (228.1 · ρw(665)) / (1 − ρw(665)/0.1641)
+
+High turbidity (T &gt; 20 FNU):  use λ_NIR = 865 nm (Oa17)
+  T [FNU] = (3078.9 · ρw(865)) / (1 − ρw(865)/0.2112)
+
+Blend zone 7–20 FNU: linear interpolation between branches
+
+SPM [g m⁻³] ≈ 1.24 · T^1.12   [empirical T→SPM conversion]</div>
+            Note: original calibration used 645 nm (not in OLCI); Oa08 (665 nm) with recalibration recommended.
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa08 (665) + Oa17 (865) nm</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>T ≈ 0.5–700 FNU; SPM ≈ 0.5–1000 g m⁻³</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Dogliotti, A.I. et al. (2015). <em>Remote Sensing of Environment</em>, 156, 157–168. <a href="https://doi.org/10.1016/j.rse.2014.09.020" target="_blank">doi:10.1016/j.rse.2014.09.020</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>The switching scheme handles the large dynamic range of James Bay/Hudson Bay (clear offshore →
+          highly turbid near-shore). The asymptotic C parameter is theoretically linked to particle scattering
+          and is moderately stable across sediment types. For arctic mineral particles (fine clay from permafrost
+          erosion) recalibration of A is advisable. Used in the ESA OLCI operational ATBD for turbid waters.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- SPM 3 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">3</div>
+      <div>
+        <div class="algo-title">Doxaran et al. (2012) — Band-Ratio SPM | Mackenzie River Arctic Plume</div>
+        <div class="algo-type">Empirical power-law NIR/VIS ratio &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">SPM [g m⁻³] = A · [Rrs(λ_NIR) / Rrs(λ_VIS)]^B
+
+Mackenzie plume calibration (MODIS-equivalent, 2012):
+  Rrs(859) / Rrs(555): A≈1306, B≈1.28
+  Rrs(859) / Rrs(645): A≈820, B≈1.10   [for very turbid pixels]
+
+OLCI equivalent bands:
+  Rrs(Oa17=865) / Rrs(Oa06=560)  or  Rrs(Oa17=865) / Rrs(Oa08=665)</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa06 (560) or Oa08 (665) denominator; Oa17 (865) numerator</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>SPM ≈ 1–2000 g m⁻³ (validated in highly turbid Mackenzie delta)</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Doxaran, D., Devred, E., Babin, M. (2012). <em>Biogeosciences</em>, 9, 3213–3229. <a href="https://doi.org/10.5194/bg-9-3213-2012" target="_blank">doi:10.5194/bg-9-3213-2012</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td><strong>Calibrated on Mackenzie River particles entering the Beaufort Sea — arctic clay/silt
+          sediment from permafrost erosion, the most analogous published calibration dataset to Nelson/Hayes
+          rivers entering Hudson Bay.</strong> NIR/VIS ratio is stable across illumination and less sensitive to
+          CDOM. Highly applicable to James Bay river-mouth plumes.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- SPM 4 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">4</div>
+      <div>
+        <div class="algo-title">Mabit &amp; Bélanger (2022) — St. Lawrence / Eastern James Bay SPM</div>
+        <div class="algo-type">Empirical regional regression (NIR band) &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">SPM [g m⁻³] = A · Rrs(λ)^B   or   A · Rrs(λ) / (1 − Rrs(λ)/C)
+[Band Oa08=665 or Oa17=865 nm depending on SPM range]
+
+See Mabit et al. (2022) Table 2 for regional coefficients
+calibrated with James Bay eastern coast field data.</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa06 (560), Oa08 (665), Oa17 (865) nm</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>Subarctic estuarine range; covers eastern James Bay gradients</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Mabit, R. et al. (2022). <em>Frontiers in Remote Sensing</em>, 3, 834908. <a href="https://doi.org/10.3389/frsen.2022.834908" target="_blank">doi:10.3389/frsen.2022.834908</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>Directly calibrated with James Bay eastern shore in situ SPM data — the most site-specific
+          algorithm available. Part of a consistent CDOM + SPM framework from the same study. Band definitions
+          compatible with OLCI Oa06/Oa08/Oa17; minor sensor inter-calibration offset may apply.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- SPM 5 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">5</div>
+      <div>
+        <div class="algo-title">Subirade et al. (2024) — OLCI SPM Algorithm Intercomparison (Best Performers)</div>
+        <div class="algo-type">Comprehensive evaluation of 12 OLCI SPM algorithms &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Key finding</td>
+          <td>Among 12 algorithms evaluated (Nechad10/16, GIOP, QAA, C2RCC, MDN, SOLID), the
+          <strong>MDN (machine learning)</strong> and <strong>SOLID (semi-analytical bbp-based)</strong>
+          outperformed all single-band empirical methods across contrasted coastal waters.
+          Best errors: ~50% MAPD, slope ≈ 1.06.</td>
+        </tr>
+        <tr>
+          <td>SOLID formula</td>
+          <td>
+            <div class="formula">b_bp(λ) → SPM via:  SPM = γ · b_bp(λ)^δ
+b_bp from multi-band IOP inversion using Oa04,Oa06,Oa08,Oa11,Oa12,Oa16,Oa17</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa04 (490), Oa06 (560), Oa08 (665), Oa11 (708.75), Oa12 (753.75), Oa16 (778.75), Oa17 (865) nm</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Subirade, C. et al. (2024). <em>Optics Express</em>, 32. DOI forthcoming in print. <a href="https://opticapublishing.figshare.com/collections/Evaluation_of_twelve_algorithms_to_estimate_suspended_particulate_matter_from_OLCI_over_contrasted_coastal_waters/7247185" target="_blank">Figshare collection</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>Most up-to-date (2024) OLCI-specific SPM benchmarking. Validation dataset does not specifically
+          include arctic waters. Recommendation: use MDN or SOLID as the baseline modern approach, benchmarked
+          against Nechad10 single-band with local recalibration for James Bay.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+</div><!-- end algo-grid SPM -->
+
+
+<!-- ═══════════════════════ TURBIDITY ═══════════════════════ -->
+<div id="turbidity" class="section-header">
+  <span class="section-badge">§5</span>
+  <h2>Turbidity</h2>
+</div>
+
+<div class="info-box">
+  Target variable: <strong>Turbidity</strong> [FNU or NTU]. Turbidity integrates both mineral and organic
+  particle scattering; the SPM-to-turbidity ratio varies with particle type (high for mineral-dominated arctic
+  sediments). A switching red/NIR scheme is essential for the full James Bay dynamic range.
+  Key note: OLCI lacks a 645 nm band; Oa07 (620 nm) or Oa08 (665 nm) serves as the red substitute.
+</div>
+
+<div class="algo-grid">
+
+  <!-- Turb 1 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">1</div>
+      <div>
+        <div class="algo-title">Dogliotti et al. (2015) — Single Switching Turbidity Algorithm</div>
+        <div class="algo-type">Semi-empirical switching (red + NIR) — also returns turbidity directly in FNU &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">T [FNU] = (A_T · ρw(λ)) / (1 − ρw(λ)/C_T)
+
+Low turbidity  (λ=645 nm → OLCI: use Oa08=665 nm): A_T=228.1, C_T=0.1641
+High turbidity (λ=859 nm → OLCI: Oa17=865 nm):     A_T=3078.9, C_T=0.2112
+Blend zone 7–20 FNU: linear interpolation</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa08 (665) + Oa17 (865) nm (with recalibration from original 645 nm)</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>T ≈ 0.5–700 FNU</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Dogliotti, A.I. et al. (2015). <em>Remote Sensing of Environment</em>, 156, 157–168. <a href="https://doi.org/10.1016/j.rse.2014.09.020" target="_blank">doi:10.1016/j.rse.2014.09.020</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>Gold standard switching turbidity algorithm; validated across Rio de la Plata, Belgian coast, and
+          San Francisco Bay. Self-switching eliminates NIR-saturation issues. For arctic mineral particles with
+          unique single-scattering albedo, recalibration of A_T using local in situ FNU data will substantially
+          improve accuracy.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Turb 2 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">2</div>
+      <div>
+        <div class="algo-title">Nechad et al. (2016) — OLCI-Specific Turbidity LUT</div>
+        <div class="algo-type">Semi-empirical per-band LUT calibrated to OLCI wavelengths &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">T [FNU] = (A_T · ρw(λ)) / (1 − ρw(λ)/C_T) + B_T
+
+OLCI-specific coefficients (Nechad 2016 LUT):
+  Oa08 (665 nm):    A_T=188.49,  C_T=0.164,  B_T≈0
+  Oa11 (708.75 nm): A_T=261.7,   C_T=0.212,  B_T≈0
+  Oa16 (778.75 nm): A_T=1414,    C_T=0.212,  B_T≈0
+  Oa17 (865 nm):    A_T=3265,    C_T=0.212,  B_T≈0</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa08 (665), Oa11 (708.75), Oa16 (778.75), Oa17 (865) nm</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>T ≈ 0.5–500 FNU per band (multi-band switching available)</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Nechad, B. et al. (2016). <em>Earth System Science Data</em>, 8, 173–196. <a href="https://doi.org/10.5194/essd-8-173-2016" target="_blank">doi:10.5194/essd-8-173-2016</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>The OLCI-specific coefficient LUT eliminates band-mismatch errors. The Oa11 band (708.75 nm)
+          fills the transitional 5–50 FNU range especially useful for subarctic coastal river plumes. Use
+          in a multi-band switching scheme: Oa08 → Oa11 → Oa17 with increasing turbidity thresholds.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Turb 3 -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">3</div>
+      <div>
+        <div class="algo-title">ESA OLCI Operational Turbid Water Turbidity (L2 ATBD)</div>
+        <div class="algo-type">Operational ESA blended switching algorithm embedded in OL_2_WFR product &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Formula</td>
+          <td>
+            <div class="formula">Switching scheme (adapted Dogliotti 2015 for OLCI):
+  T &lt; ~7 FNU:  Oa08 = 665 nm   branch
+  7–20 FNU:    Oa11 = 708.75 nm  blended
+  T &gt; 20 FNU:  Oa17 = 865 nm   branch
+
+Output as TUR variable in ESA Sentinel-3 OL_2_WFR product.</div>
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa08 (665), Oa11 (708.75), Oa17 (865) nm</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>ESA OLCI L2 Turbid Water ATBD. <em>SENTINEL-3 L2 Products and Algorithm Definition</em>. <a href="https://step.esa.int/docs/extra/OLCI_L2_ATBD_Ocean_Colour_Turbid_Water.pdf" target="_blank">ESA STEP document</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>Standard baseline product. Global calibration; significant biases expected for arctic
+          mineral-particle sediments. Use as a quick-look reference; supplement with regionally calibrated
+          algorithms. The TUR variable is directly available in the ESA OL_2_WFR NetCDF4 product.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+</div><!-- end algo-grid Turbidity -->
+
+
+<!-- ═══════════════════════ PROCESSORS ═══════════════════════ -->
+<div id="processors" class="section-header">
+  <span class="section-badge">§6</span>
+  <h2>Processor-Level (Combined) Algorithms</h2>
+</div>
+
+<div class="info-box">
+  These processors simultaneously perform atmospheric correction and retrieve multiple water quality products
+  (CDOM, Chla, SPM) from the full Rrs spectrum. They offer operational convenience but require evaluation
+  against local in situ data for arctic/subarctic conditions.
+</div>
+
+<div class="algo-grid">
+
+  <!-- Processor 1: C2RCC -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">P1</div>
+      <div>
+        <div class="algo-title">C2RCC / C2X — Case 2 Regional Coast Color Neural Network (Brockmann et al., 2016)</div>
+        <div class="algo-type">Two-stage neural network (AC + IOP inversion) &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★</span> (C2X: <span class="stars">★★★★</span>)</div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Architecture</td>
+          <td>
+            Stage 1 NN: TOA radiance → Rrs(λ) for all OLCI bands<br>
+            Stage 2 NN: Rrs(λ) → IOPs [a<sub>dg</sub>(443), a<sub>ph</sub>(443), b<sub>bp</sub>(443)]<br>
+            Concentrations: Chla = a<sub>ph</sub>(443) / a<sub>ph</sub>*; TSM = b<sub>bp</sub> / b<sub>sp</sub>; CDOM ≈ a<sub>dg</sub>(443)
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa02–Oa11 (412.5–708.75 nm); full visible spectrum used</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>C2RCC: Chla 0.01–200 mg m⁻³, TSM 0.1–500 g m⁻³, CDOM 0.001–5 m⁻¹<br>
+          <strong>C2X</strong> (extreme waters): Chla to 200, TSM to 1000 g m⁻³, CDOM to 20 m⁻¹</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Brockmann, C. et al. (2016). <em>ESA Living Planet Symposium 2016</em>, ESA-SP 740. Available in SNAP toolbox.</td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>ESA standard Case-2 product for OLCI L2. <strong>C2X</strong> (extended training range) is recommended
+          for highly turbid James Bay river plumes. Training data do not specifically include Arctic bio-optics;
+          CDOM retrievals in subarctic river-plume waters may carry systematic biases (Glukhovets et al. 2020).
+          Operationally convenient: simultaneous multi-parameter retrieval in SNAP. Use as first-cut baseline
+          before applying parameter-specific algorithms.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Processor 2: ONNS -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">P2</div>
+      <div>
+        <div class="algo-title">ONNS — OLCI Neural Network Swarm (Hieronymi, Müller &amp; Doerffer, 2017)</div>
+        <div class="algo-type">Ensemble of 13 optical-water-type–specific NNs with automatic blending &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Architecture</td>
+          <td>
+            1. OWT classification of Rrs(λ) into 1 of 13 optical water types<br>
+            2. OWT-specific NN applied for IOP retrieval<br>
+            3. IOPs → Chla, ISM (inorganic SPM), a<sub>CDOM</sub>(440), K<sub>d</sub>(490), uncertainty
+          </td>
+        </tr>
+        <tr>
+          <td>OLCI bands</td>
+          <td>Oa01–Oa12 (400–753.75 nm); full visible spectrum</td>
+        </tr>
+        <tr>
+          <td>Output range</td>
+          <td>Chla 0.01–200 mg m⁻³, ISM 0.01–<strong>1500 g m⁻³</strong>, a<sub>CDOM</sub>(440) 0.0001–20 m⁻¹</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Hieronymi, M., Müller, D., Doerffer, R. (2017). <em>Frontiers in Marine Science</em>, 4, 140. <a href="https://doi.org/10.3389/fmars.2017.00140" target="_blank">doi:10.3389/fmars.2017.00140</a></td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td>The OWT classification explicitly handles optical diversity of mixed waters. OWT classes 12–13
+          (extreme absorbing) are designed for "optically black" high-CDOM waters typical near James Bay
+          river mouths. ISM range to 1500 g m⁻³ covers extreme arctic sediment events. OWT-based blending
+          provides better performance than a single-NN in optically variable subarctic scenes. No specific
+          Arctic validation reported, but framework inherently captures high-CDOM classes.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Processor 3: Polymer -->
+  <div class="algo-card">
+    <div class="algo-card-header">
+      <div class="algo-num">P3</div>
+      <div>
+        <div class="algo-title">Polymer — Atmospheric Correction for OLCI (Steinmetz &amp; Ramon, 2018)</div>
+        <div class="algo-type">Coupled ocean-atmosphere spectral polynomial AC — produces Rrs for all in-water algorithms &nbsp;|&nbsp; Arctic applicability: <span class="stars">★★★★★</span></div>
+      </div>
+    </div>
+    <div class="algo-card-body">
+      <table>
+        <tr>
+          <td>Key principle</td>
+          <td>
+            <div class="formula">ρ_TOA(λ) = ρ_atm(λ) + TT · ρ_w(λ) + ρ_glint(λ)
+
+Atmospheric + glint terms modelled as polynomial in λ;
+water term uses forward bio-optical model.
+All parameters fitted simultaneously by spectral cost function minimisation.</div>
+          </td>
+        </tr>
+        <tr>
+          <td>Output</td>
+          <td>Rrs(λ) for all OLCI bands → feeds any in-water algorithm above</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>Steinmetz, F., Ramon, D. (2018). <em>SPIE Proc.</em>, 10778, 1077810. <a href="https://doi.org/10.1117/12.2500232" target="_blank">doi:10.1117/12.2500232</a><br>
+          Original: Steinmetz, F. et al. (2011). <em>Optics Express</em>, 19, 9783–9800.</td>
+        </tr>
+        <tr>
+          <td>Arctic notes</td>
+          <td><strong>Strongly recommended AC step for all James Bay / Hudson Bay OLCI processing.</strong><br>
+          Advantages over ESA standard AC (Black Pixel Assumption):
+          <ul style="margin:.3rem 0 0 1rem;font-size:.85rem;">
+            <li>Handles high sun-zenith angles (&gt;60°) in arctic summer</li>
+            <li>Explicit sun-glint removal across wide azimuth range</li>
+            <li>Works in turbid nearshore waters where NIR dark-pixel assumption fails</li>
+            <li>Used successfully by El Kassar/Juhls et al. (2023) for Lena River OLCI CDOM retrieval</li>
+          </ul>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+</div><!-- end algo-grid Processors -->
+
+
+<!-- ═══════════════════════ SUMMARY TABLE ═══════════════════════ -->
+<div id="summary" class="section-header">
+  <span class="section-badge">§7</span>
+  <h2>Summary Table &amp; Arctic Applicability</h2>
+</div>
+
+<div class="summary-wrap">
+<table class="summary-table">
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Algorithm</th>
+      <th>OLCI Bands</th>
+      <th>Type</th>
+      <th>Output Range</th>
+      <th>Arctic ★</th>
+      <th>Citation</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="param-group"><td colspan="7">CDOM — a<sub>CDOM</sub>(443) [m⁻¹]</td></tr>
+    <tr>
+      <td>CDOM</td><td>Matsuoka et al. 2013 GIOP-SA</td><td>Oa02–Oa08</td><td>Semi-analytical</td>
+      <td>0.01–1.5 m⁻¹</td><td>★★★★★</td><td>Biogeosciences 2013</td>
+    </tr>
+    <tr>
+      <td>CDOM</td><td>Glukhovets et al. 2020 (OLCI)</td><td>Oa03/Oa04</td><td>Empirical</td>
+      <td>0.03–1.2 m⁻¹</td><td>★★★★★</td><td>Remote Sensing 2020</td>
+    </tr>
+    <tr>
+      <td>CDOM/DOC</td><td>El Kassar / Juhls et al. 2023 (Polymer)</td><td>Oa02,Oa03,Oa04</td><td>Empirical (OLCI)</td>
+      <td>r²=0.92 in situ</td><td>★★★★★</td><td>Front. Mar. Sci. 2023</td>
+    </tr>
+    <tr>
+      <td>CDOM</td><td>Lewis &amp; Arrigo 2020 AO.GSM</td><td>Oa03–Oa06</td><td>Semi-analytical</td>
+      <td>0.005–1.5 m⁻¹</td><td>★★★★</td><td>JGR Oceans 2020</td>
+    </tr>
+    <tr>
+      <td>CDOM</td><td>Mabit &amp; Bélanger 2022</td><td>Oa03,Oa06</td><td>Empirical</td>
+      <td>0.1–3.5 m⁻¹</td><td>★★★★★</td><td>Front. Remote Sens. 2022</td>
+    </tr>
+    <tr class="param-group"><td colspan="7">Chlorophyll-a [mg m⁻³]</td></tr>
+    <tr>
+      <td>Chla</td><td>OC4Me (ESA operational)</td><td>Oa03,Oa04,Oa05,Oa06</td><td>Empirical MBR</td>
+      <td>0.03–30 mg m⁻³</td><td>★★</td><td>ESA ATBD / O'Reilly 1998</td>
+    </tr>
+    <tr>
+      <td>Chla</td><td>Gons et al. 2005 NIR-red</td><td>Oa08,Oa11,Oa16</td><td>Semi-analytical</td>
+      <td>3–185 mg m⁻³</td><td>★★★★★</td><td>J. Plankton Res. 2005</td>
+    </tr>
+    <tr>
+      <td>Chla</td><td>NDCI — Mishra &amp; Mishra 2012</td><td>Oa08,Oa11</td><td>Empirical index</td>
+      <td>1–150 mg m⁻³</td><td>★★★★</td><td>RSE 2012</td>
+    </tr>
+    <tr>
+      <td>Chla</td><td>Lewis &amp; Arrigo 2020 AOReg.emp</td><td>Oa03–Oa06</td><td>Empirical MBR</td>
+      <td>0.05–15 mg m⁻³</td><td>★★★★</td><td>JGR Oceans 2020</td>
+    </tr>
+    <tr>
+      <td>Chla</td><td>FLH (Letelier &amp; Abbott 1996)</td><td>Oa08,Oa10,Oa11</td><td>Semi-analytical</td>
+      <td>0.05–50 mg m⁻³</td><td>★★★</td><td>GRL 1996 / ESA ATBD</td>
+    </tr>
+    <tr>
+      <td>Chla</td><td>MDN ML — Pahlevan et al. 2020</td><td>Oa02–Oa12,Oa16,Oa17</td><td>Machine learning</td>
+      <td>0.01–500 mg m⁻³</td><td>★★★</td><td>RSE 2020</td>
+    </tr>
+    <tr class="param-group"><td colspan="7">SPM / TSM [g m⁻³]</td></tr>
+    <tr>
+      <td>SPM</td><td>Nechad et al. 2010 (single-band)</td><td>Oa08 or Oa17</td><td>Semi-empirical</td>
+      <td>0.5–1000 g m⁻³</td><td>★★★</td><td>RSE 2010</td>
+    </tr>
+    <tr>
+      <td>SPM</td><td>Dogliotti et al. 2015 (switching)</td><td>Oa08 + Oa17</td><td>Semi-empirical</td>
+      <td>0.5–700 FNU</td><td>★★★★</td><td>RSE 2015</td>
+    </tr>
+    <tr>
+      <td>SPM</td><td>Doxaran et al. 2012 (Mackenzie)</td><td>Oa06,Oa17 or Oa08,Oa17</td><td>Empirical ratio</td>
+      <td>1–2000 g m⁻³</td><td>★★★★★</td><td>Biogeosciences 2012</td>
+    </tr>
+    <tr>
+      <td>SPM</td><td>Mabit &amp; Bélanger 2022 (James Bay)</td><td>Oa06,Oa08,Oa17</td><td>Empirical</td>
+      <td>Subarctic range</td><td>★★★★★</td><td>Front. Remote Sens. 2022</td>
+    </tr>
+    <tr>
+      <td>SPM</td><td>Subirade et al. 2024 (SOLID/MDN)</td><td>Oa04,Oa06,Oa08,Oa11–Oa17</td><td>Semi-anal. / ML</td>
+      <td>Full range</td><td>★★★</td><td>Opt. Express 2024</td>
+    </tr>
+    <tr class="param-group"><td colspan="7">Turbidity [FNU / NTU]</td></tr>
+    <tr>
+      <td>Turbidity</td><td>Dogliotti et al. 2015 (switching)</td><td>Oa08 + Oa17</td><td>Semi-empirical</td>
+      <td>0.5–700 FNU</td><td>★★★★</td><td>RSE 2015</td>
+    </tr>
+    <tr>
+      <td>Turbidity</td><td>Nechad et al. 2016 OLCI LUT</td><td>Oa08,Oa11,Oa16,Oa17</td><td>Semi-empirical</td>
+      <td>0.5–500 FNU</td><td>★★★</td><td>ESSD 2016</td>
+    </tr>
+    <tr>
+      <td>Turbidity</td><td>ESA Operational (ATBD)</td><td>Oa08,Oa11,Oa17</td><td>Semi-empirical</td>
+      <td>Operational</td><td>★★★</td><td>ESA ATBD</td>
+    </tr>
+    <tr class="param-group"><td colspan="7">Combined Processors (AC + multi-parameter)</td></tr>
+    <tr>
+      <td>All</td><td>C2RCC / C2X NN</td><td>Oa02–Oa11 (full vis.)</td><td>Neural network</td>
+      <td>Multi-parameter</td><td>★★★ / ★★★★</td><td>Brockmann et al. 2016</td>
+    </tr>
+    <tr>
+      <td>All</td><td>ONNS (Hieronymi et al. 2017)</td><td>Oa01–Oa12 (full vis.)</td><td>NN Swarm (OWT)</td>
+      <td>Multi-parameter</td><td>★★★★</td><td>Front. Mar. Sci. 2017</td>
+    </tr>
+    <tr>
+      <td>AC only</td><td>Polymer (Steinmetz &amp; Ramon 2018)</td><td>All OLCI bands</td><td>Spectral poly. AC</td>
+      <td>Rrs(λ) output</td><td>★★★★★</td><td>SPIE 2018</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+<!-- ═══════════════════════ RECOMMENDATIONS ═══════════════════════ -->
+<div id="recommendations" class="section-header">
+  <span class="section-badge">§8</span>
+  <h2>Recommendations for James Bay / Hudson Bay Pipeline</h2>
+</div>
+
+<div class="reco-grid">
+  <div class="reco-item">
+    <h4>Atmospheric Correction</h4>
+    <ul>
+      <li><strong>Polymer</strong> (Steinmetz &amp; Ramon 2018) — handles high SZA, sun-glint, turbid nearshore</li>
+      <li>ACOLITE acceptable alternative for very turbid nearshore pixels (already in pipeline)</li>
+      <li>Avoid ESA standard Black Pixel AC for high-CDOM / arctic SZA conditions</li>
+    </ul>
+  </div>
+  <div class="reco-item">
+    <h4>CDOM</h4>
+    <ul>
+      <li><strong>Mabit &amp; Bélanger (2022)</strong> — only James Bay–specific calibration available</li>
+      <li><strong>Matsuoka et al. (2013)</strong> — for open Hudson Bay shelf (Beaufort Sea analogue)</li>
+      <li>El Kassar/Juhls (2023) framework — methodological blueprint for OLCI river-plume CDOM</li>
+      <li>Avoid blue-band GSM/QAA in highly CDOM-dominated nearshore pixels</li>
+    </ul>
+  </div>
+  <div class="reco-item">
+    <h4>Chlorophyll-a</h4>
+    <ul>
+      <li><strong>Gons NIR-red (2005)</strong> — CDOM-insensitive; first choice for nearshore plumes</li>
+      <li><strong>NDCI (Mishra 2012)</strong> — for spring bloom / productive periods</li>
+      <li>Lewis &amp; Arrigo AOReg — for open offshore Hudson Bay (lower CDOM)</li>
+      <li>Do NOT use OC4Me in river-plume / nearshore zones</li>
+    </ul>
+  </div>
+  <div class="reco-item">
+    <h4>SPM / TSM</h4>
+    <ul>
+      <li><strong>Doxaran et al. (2012)</strong> — Mackenzie Arctic plume calibration, most analogous mineralogy</li>
+      <li><strong>Nechad (2010) + switching scheme</strong> — Oa08 (low) → Oa11 (mid) → Oa17 (high turbidity)</li>
+      <li>Mabit &amp; Bélanger (2022) — if local James Bay in situ SPM data available for recalibration</li>
+    </ul>
+  </div>
+  <div class="reco-item">
+    <h4>Turbidity</h4>
+    <ul>
+      <li><strong>Dogliotti et al. (2015)</strong> — gold standard switching algorithm</li>
+      <li>Nechad (2016) OLCI LUT — use Oa11 (708 nm) for intermediate turbidity range</li>
+      <li>Recalibrate A<sub>T</sub> with local in situ FNU measurements for arctic mineral particles</li>
+    </ul>
+  </div>
+  <div class="reco-item">
+    <h4>Combined / Operational</h4>
+    <ul>
+      <li><strong>C2X</strong> — operational multi-parameter retrieval (SNAP); use for quick-look runs</li>
+      <li><strong>ONNS</strong> — preferred over C2RCC for optically diverse subarctic scenes (13 OWT classes)</li>
+      <li>Both should be validated against parameter-specific algorithms above</li>
+    </ul>
+  </div>
+</div>
+
+<div class="warn-box" style="margin-top:1rem;">
+  <strong>Key caution for James Bay.</strong> All algorithms except Mabit &amp; Bélanger (2022) and
+  Doxaran et al. (2012) were calibrated outside James Bay and Hudson Bay. Regional recalibration
+  (even if only adjusting the leading coefficient A) using in situ measurements from the Nelson/Hayes/La Grande
+  river plumes will substantially improve retrieval accuracy. Concurrent field campaigns with Sentinel-3
+  overpasses are strongly recommended as a validation strategy.
+</div>
+
+
+<!-- ═══════════════════════ REFERENCES ═══════════════════════ -->
+<div id="refs" class="section-header">
+  <span class="section-badge">§9</span>
+  <h2>Key References</h2>
+</div>
+
+<ol class="ref-list">
+  <li>Matsuoka, A. et al. (2013). Estimating absorption coefficients of colored dissolved organic matter (CDOM) using a semi-analytical algorithm for southern Beaufort Sea waters. <em>Biogeosciences</em>, 10, 917–927. <a href="https://doi.org/10.5194/bg-10-917-2013" target="_blank">doi:10.5194/bg-10-917-2013</a></li>
+  <li>Glukhovets, D. et al. (2020). Evaluation of the CDOM Absorption Coefficient in the Arctic Seas Based on Sentinel-3 OLCI Data. <em>Remote Sensing</em>, 12(19), 3210. <a href="https://doi.org/10.3390/rs12193210" target="_blank">doi:10.3390/rs12193210</a></li>
+  <li>El Kassar, J., Juhls, B. et al. (2023). Optical remote sensing (Sentinel-3 OLCI) used to monitor dissolved organic carbon in the Lena River. <em>Frontiers in Marine Science</em>, 10, 1082109. <a href="https://doi.org/10.3389/fmars.2023.1082109" target="_blank">doi:10.3389/fmars.2023.1082109</a></li>
+  <li>Lewis, K.M. &amp; Arrigo, K.R. (2020). Ocean color algorithms for estimating chlorophyll a, CDOM absorption, and particle backscattering in the Arctic Ocean. <em>Journal of Geophysical Research: Oceans</em>, 125, e2019JC015706. <a href="https://doi.org/10.1029/2019JC015706" target="_blank">doi:10.1029/2019JC015706</a></li>
+  <li>Mabit, R., Araújo, C.A.S., Singh, R.K., Bélanger, S. (2022). Empirical remote sensing algorithms to retrieve SPM and CDOM in Québec coastal waters. <em>Frontiers in Remote Sensing</em>, 3, 834908. <a href="https://doi.org/10.3389/frsen.2022.834908" target="_blank">doi:10.3389/frsen.2022.834908</a></li>
+  <li>O'Reilly, J.E. et al. (1998). Ocean color chlorophyll algorithms for SeaWiFS. <em>Journal of Geophysical Research</em>, 103(C11), 24937. <a href="https://doi.org/10.1029/98JC02160" target="_blank">doi:10.1029/98JC02160</a></li>
+  <li>Gons, H.J., Rijkeboer, M., Ruddick, K.G. (2005). A chlorophyll-retrieval algorithm for satellite imagery (MERIS) of inland and coastal waters. <em>Journal of Plankton Research</em>, 27(2), 125–133. <a href="https://doi.org/10.1093/plankt/fbh151" target="_blank">doi:10.1093/plankt/fbh151</a></li>
+  <li>Mishra, S. &amp; Mishra, D.R. (2012). Normalized difference chlorophyll index. <em>Remote Sensing of Environment</em>, 117, 394–406. <a href="https://doi.org/10.1016/j.rse.2011.10.016" target="_blank">doi:10.1016/j.rse.2011.10.016</a></li>
+  <li>Pahlevan, N. et al. (2020). Seamless retrievals of chlorophyll-a from Sentinel-2 (MSI) and Sentinel-3 (OLCI) in inland and coastal waters: A machine-learning approach. <em>Remote Sensing of Environment</em>, 240, 111604. <a href="https://doi.org/10.1016/j.rse.2020.111604" target="_blank">doi:10.1016/j.rse.2020.111604</a></li>
+  <li>Letelier, R.M. &amp; Abbott, M.R. (1996). An analysis of chlorophyll fluorescence algorithms for the moderate resolution imaging spectrometer (MODIS). <em>Geophysical Research Letters</em>, 23(16), 2111–2114. <a href="https://doi.org/10.1029/96GL01228" target="_blank">doi:10.1029/96GL01228</a></li>
+  <li>Nechad, B., Ruddick, K.G., Park, Y. (2010). Calibration and validation of a generic multisensor algorithm for mapping of total suspended matter in turbid waters. <em>Remote Sensing of Environment</em>, 114(4), 854–866. <a href="https://doi.org/10.1016/j.rse.2009.11.022" target="_blank">doi:10.1016/j.rse.2009.11.022</a></li>
+  <li>Nechad, B. et al. (2016). CoastColour Round Robin datasets: a database to evaluate the performance of algorithms for the retrieval of water quality parameters in coastal waters. <em>Earth System Science Data</em>, 8, 173–196. <a href="https://doi.org/10.5194/essd-8-173-2016" target="_blank">doi:10.5194/essd-8-173-2016</a></li>
+  <li>Dogliotti, A.I. et al. (2015). A single algorithm to retrieve turbidity from remotely-sensed data in all coastal and estuarine waters. <em>Remote Sensing of Environment</em>, 156, 157–168. <a href="https://doi.org/10.1016/j.rse.2014.09.020" target="_blank">doi:10.1016/j.rse.2014.09.020</a></li>
+  <li>Doxaran, D., Devred, E., Babin, M. (2012). Optical characterisation of suspended particles in the Mackenzie River plume (Canadian Arctic Ocean). <em>Biogeosciences</em>, 9, 3213–3229. <a href="https://doi.org/10.5194/bg-9-3213-2012" target="_blank">doi:10.5194/bg-9-3213-2012</a></li>
+  <li>Subirade, C. et al. (2024). Evaluation of twelve algorithms to estimate suspended particulate matter from OLCI over contrasted coastal waters. <em>Optics Express</em>, 32. <a href="https://opticapublishing.figshare.com/collections/Evaluation_of_twelve_algorithms_to_estimate_suspended_particulate_matter_from_OLCI_over_contrasted_coastal_waters/7247185" target="_blank">Figshare</a></li>
+  <li>Brockmann, C. et al. (2016). Evolution of the C2RCC Neural Network for Sentinel 2 and 3 for the Retrieval of Ocean Colour Products in Normal and Extreme Optically Complex Waters. <em>ESA Living Planet Symposium 2016</em>, ESA-SP 740.</li>
+  <li>Hieronymi, M., Müller, D., Doerffer, R. (2017). The OLCI Neural Network Swarm (ONNS). <em>Frontiers in Marine Science</em>, 4, 140. <a href="https://doi.org/10.3389/fmars.2017.00140" target="_blank">doi:10.3389/fmars.2017.00140</a></li>
+  <li>Steinmetz, F. &amp; Ramon, D. (2018). Sentinel-2 MSI and Sentinel-3 OLCI consistent ocean colour products using POLYMER. <em>SPIE Proceedings</em>, 10778, 1077810. <a href="https://doi.org/10.1117/12.2500232" target="_blank">doi:10.1117/12.2500232</a></li>
+  <li>Basu, S. et al. (2023). Plume dispersion from the Nelson and Hayes rivers in Hudson Bay. <em>Elementa: Science of the Anthropocene</em>, 11(1), 00076. <a href="https://doi.org/10.1525/elementa.2022.00076" target="_blank">doi:10.1525/elementa.2022.00076</a></li>
+</ol>
+
+
+<footer>
+  Water Quality Retrieval Algorithm Summary — Sentinel-3 OLCI — Arctic &amp; Subarctic<br>
+  Generated June 2026 &nbsp;|&nbsp; GAAC/ARCTUS batch pipeline &nbsp;|&nbsp; batch/wq_algorithms_arctic_olci.html
+</footer>
+
+</div><!-- .page -->
+</body>
+</html>

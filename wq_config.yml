@@ -1,0 +1,65 @@
+# Water Quality Retrieval Pipeline — Sentinel-3 OLCI
+# Copy and edit this template; set l2_dir, l3_dir, and aoi_name for your run.
+
+# Optional: inject gaac_gen into sys.path to enable Cinputmask for mask reading.
+# If omitted, the pipeline falls back to reading mask tags directly (works for
+# all mask files produced by the GAAC batch pipeline).
+gaac_gen_dir: /home/yan/WorkSpace/pycharm_proj/gaac_arctus/gaac_gen/src
+
+# Input: L2 directory containing *_GAAC/ scene subdirectories
+l2_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_TEST/
+
+# Output: root for L3 product tree (PMP + DRP will be created here)
+l3_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L3_TEST/
+
+# AOI label used in DRP filenames, e.g. JamesBay_YYYYMMDD_chla.tif
+aoi_name: JamesBay
+
+# ── Water quality products ────────────────────────────────────────────────────
+# For each product, choose the algorithm and optionally override coefficients.
+# Set enabled: false to skip a product entirely.
+#
+# Available algorithms:
+#   chla      : oc4me | gons2005 | ndci
+#   cdom      : glukhovets2020 | mabit2022
+#   spm       : nechad2010 | dogliotti2015 | doxaran2012
+#   turbidity : dogliotti2015_t | nechad2016_olci
+
+wq_products:
+  chla:
+    enabled: true
+    algorithm: gons2005        # NIR-red, CDOM-insensitive — recommended for James Bay
+    params: {}
+    # Override example:
+    # params:
+    #   aph_star: 0.014        # m² mg⁻¹, lower value for cold arctic phytoplankton
+
+  cdom:
+    enabled: true
+    algorithm: mabit2022       # James Bay / St. Lawrence calibrated
+    params: {}
+    # Override example:
+    # params:
+    #   alpha: 0.90
+    #   beta: -1.35
+
+  spm:
+    enabled: true
+    algorithm: dogliotti2015   # red/NIR switching, wide dynamic range
+    params: {}
+
+  turbidity:
+    enabled: true
+    algorithm: dogliotti2015_t # same switching scheme, returns FNU directly
+    params: {}
+
+# ── Aggregation ───────────────────────────────────────────────────────────────
+aggregation:
+  method: mean                 # temporal statistic (mean only currently supported)
+  periods:
+    - daily
+    - monthly
+    - yearly
+
+# Set true to recompute and overwrite existing output files
+replace_output: true
