@@ -1,8 +1,15 @@
 # batch-gaac-s3
 
-Batch atmospheric correction of Sentinel-3 OLCI L1 GeoTIFF scenes using [GAAC](https://github.com/arctus-2023/gaac_gen) (Genetic Algorithm for Atmospheric Correction).
+Two independent pipelines for Sentinel-3 OLCI:
 
-## Overview
+1. **`batch_gaac_s3.py`** — atmospheric correction (L1 → L2 water-leaving reflectance)
+2. **`batch_wq.py`** — water quality retrieval (L2 → PMP/DRP products for Chla, CDOM, SPM, Turbidity)
+
+---
+
+## Atmospheric Correction (`batch_gaac_s3.py`)
+
+### Overview
 
 The pipeline processes each scene through three stages:
 
@@ -23,7 +30,7 @@ clear_water_pct = clear_water_pixels / (clear_water_pixels + cloud_water_pixels)
 
 where pixel classes come from the classification band of the L1 TOA GeoTIFF (0=clear_land, 1=clear_water, 2=cloud_land, 3=cloud_water, 255=invalid).
 
-## Setup on a new machine
+### Setup on a new machine
 
 **1. Create the conda environment** (provides GDAL native libs):
 
@@ -52,13 +59,13 @@ uv pip install --python .venv "gdal==3.10.3"
 
 GDAL is only required for GeoPackage opt-pixel export — the AC pipeline runs without it.
 
-## Usage
+### Usage
 
 ```bash
 python batch_gaac_s3.py <config.yml> [options]
 ```
 
-### Options
+#### Options
 
 | Flag | Description |
 |------|-------------|
@@ -67,7 +74,7 @@ python batch_gaac_s3.py <config.yml> [options]
 | `--scene SUBSTR` | Only process scenes whose filename contains `SUBSTR` (repeatable) |
 | `--ndwi-threshold T` | Override the NDWI water-mask threshold from the config |
 
-### Examples
+#### Examples
 
 ```bash
 # Full batch run
@@ -84,7 +91,7 @@ python batch_gaac_s3.py batch_gaac_s3_config_test.yml \
     --scene S3A_L1TOA_20250712 --ndwi-threshold 0.3
 ```
 
-### Dry-run CSV
+#### Dry-run CSV
 
 `--dry-run` writes a `dryrun_YYYYMMDD_HHMMSS.csv` file to `output_dir` with one row per scene:
 
@@ -94,7 +101,7 @@ python batch_gaac_s3.py batch_gaac_s3_config_test.yml \
 | `clear_water_pct` | `clear_water / (clear_water + cloud_water) × 100` |
 | `status` | `would_process`, `below_threshold`, or `no_classification_band` |
 
-## Configuration
+### Configuration
 
 Copy and edit `batch_gaac_s3_config_test.yml`:
 
@@ -125,7 +132,7 @@ aerosol:
   tile_size: 200             # remove or comment out to disable tiled AC
 ```
 
-## Outputs
+### Outputs
 
 Each processed scene produces a `<scene_name>_GAAC/` subdirectory containing:
 
@@ -140,3 +147,122 @@ Each processed scene produces a `<scene_name>_GAAC/` subdirectory containing:
 | `*_rhor_opt_pixels.gpkg` | Optimization pixel locations (GeoPackage) |
 | `*_tile_NN_res.png` | Per-tile GA optimization fit plots (tiled AC only) |
 | `log_gaac_*.txt` | Processing log |
+
+---
+
+## Water Quality Retrieval (`batch_wq.py`)
+
+Takes `*_GAAC/` directories produced by `batch_gaac_s3.py` and retrieves four water quality variables from the water-leaving reflectance (`*_rhor_rhow.tif`).
+
+### Products
+
+| Tier | Description | Files |
+|------|-------------|-------|
+| **PMP** | Per-scene, per-variable GeoTIFF | 1 band, float32, nodata=NaN |
+| **DRP daily** | Temporal merge of same-day PMPs (mean / std / count) | 3 bands |
+| **DRP monthly** | Count-weighted pool of daily DRPs | 3 bands |
+| **DRP yearly** | Count-weighted pool of monthly DRPs | 3 bands |
+
+Outliers (values outside the [5 %, 95 %] percentile of finite pixels in each input file) are excluded before accumulation.
+
+### Algorithms
+
+| Variable | Units | Algorithm key | Method |
+|----------|-------|---------------|--------|
+| Chla | mg m⁻³ | `gons2005` | NIR-red (665/709), CDOM-insensitive |
+| | | `oc4me` | OC4Me log-polynomial (Rrs 443/490/510/560) |
+| | | `ndci` | NDCI (665/709) |
+| CDOM | m⁻¹ | `mabit2022` | Power-law band ratio (443/560) |
+| | | `glukhovets2020` | Log-linear band ratio (443/490) |
+| SPM | g m⁻³ | `dogliotti2015` | Red/NIR switching (665/865 nm) |
+| | | `nechad2010` | Single-band (665 nm, switches to 865 nm) |
+| | | `doxaran2012` | NIR/green ratio (865/560 nm) |
+| Turbidity | FNU | `dogliotti2015_t` | Same switching scheme as dogliotti2015 SPM |
+| | | `nechad2016_olci` | Multi-band OLCI LUT (665/709/865 nm) |
+
+### Usage
+
+```bash
+python batch_wq.py wq_config.yml [options]
+```
+
+#### Options
+
+| Flag | Description |
+|------|-------------|
+| `--scene SUBSTR` | Process only scenes whose directory name contains `SUBSTR` (repeatable) |
+| `--pmp-only` | Compute scene-level PMP products only; skip DRP aggregation |
+| `--drp-only` | Run DRP aggregation only (PMPs must already exist) |
+| `--period daily\|monthly\|yearly` | Restrict DRP aggregation to one period tier |
+| `--limit N` | Stop after processing N scenes |
+
+#### Examples
+
+```bash
+# Full run — PMP + all DRP tiers
+python batch_wq.py wq_config.yml
+
+# Single scene
+python batch_wq.py wq_config.yml --scene S3A_L1TOA_20250615
+
+# Regenerate DRP products only (after new scenes were added)
+python batch_wq.py wq_config.yml --drp-only
+
+# Daily DRP only
+python batch_wq.py wq_config.yml --drp-only --period daily
+```
+
+### Configuration
+
+Copy and edit `wq_config.yml`:
+
+```yaml
+gaac_gen_dir: /path/to/gaac_gen/src  # optional; enables Cinputmask for mask reading
+
+l2_dir: /path/to/L2_output           # directory containing *_GAAC/ scene subdirs
+l3_dir: /path/to/L3_output           # root for PMP + DRP product tree
+aoi_name: JamesBay                   # label used in DRP filenames
+
+wq_products:
+  chla:
+    enabled: true
+    algorithm: gons2005
+    params: {}                        # optional coefficient overrides
+  cdom:
+    enabled: true
+    algorithm: mabit2022
+    params: {}
+  spm:
+    enabled: true
+    algorithm: dogliotti2015
+    params: {}
+  turbidity:
+    enabled: true
+    algorithm: dogliotti2015_t
+    params: {}
+
+aggregation:
+  periods: [daily, monthly, yearly]
+
+replace_output: false                 # set true to overwrite existing outputs
+```
+
+### Output structure
+
+```
+<l3_dir>/
+├── PMP/
+│   └── YYYY/MM/DD/
+│       └── <scene_stem>/
+│           ├── <scene_stem>_chla.tif
+│           ├── <scene_stem>_cdom.tif
+│           ├── <scene_stem>_spm.tif
+│           └── <scene_stem>_turbidity.tif
+└── DRP/
+    ├── daily/YYYY/MM/DD/
+    │   └── <aoi>_YYYYMMDD_<var>.tif        (bands: mean / std / count)
+    ├── monthly/YYYY/MM/
+    │   └── <aoi>_YYYYMM_<var>.tif
+    └── yearly/YYYY/
+        └── <aoi>_YYYY_<var>.tif
+```
