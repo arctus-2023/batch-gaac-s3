@@ -7,6 +7,13 @@ PMP → daily  : Welford online algorithm (memory-efficient mean + variance
 daily → monthly: count-weighted pooled mean and variance across daily DRPs
 monthly → yearly: same pooled weighting
 
+Outlier rejection
+-----------------
+Before each array enters the accumulator, values outside the [5 %, 95 %]
+percentile of that array's finite pixels are set to NaN and excluded from
+the mean, std, and count.  The percentile bounds are computed per-file so
+that scenes with very different dynamic ranges are treated independently.
+
 Each DRP TIF has 3 bands: mean, std, count.
 """
 
@@ -156,12 +163,29 @@ class DRPAggregator:
 
     # ── core statistics ────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _clip_outliers(arr: np.ndarray, lo: float = 5.0, hi: float = 95.0) -> np.ndarray:
+        """Return a copy of arr with values outside [lo, hi] percentile set to NaN.
+
+        Percentiles are computed from finite (non-NaN) values only.  If fewer
+        than 2 finite values exist the array is returned unchanged.
+        """
+        finite = arr[np.isfinite(arr)]
+        if finite.size < 2:
+            return arr.copy()
+        p_lo, p_hi = np.percentile(finite, [lo, hi])
+        result = arr.copy()
+        result[(arr < p_lo) | (arr > p_hi)] = np.nan
+        return result
+
     def _welford_stack(
         self, paths: list[Path]
     ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
         """Compute mean, std, count across single-band TIFs using Welford's algorithm.
 
         Processes one file at a time → O(H×W) memory regardless of file count.
+        Values outside the [5 %, 95 %] percentile of each file's finite pixels
+        are excluded before accumulation.
         """
         n = mean = M2 = None
 
@@ -172,6 +196,8 @@ class DRPAggregator:
             except Exception as exc:
                 logger.warning('Could not read %s: %s', p, exc)
                 continue
+
+            arr = self._clip_outliers(arr)
 
             if n is None:
                 H, W = arr.shape
@@ -210,6 +236,10 @@ class DRPAggregator:
           total_count = Σ count_i
           pooled_mean = Σ (mean_i · count_i) / total_count
           pooled_var  = Σ count_i · (var_i + (mean_i − pooled_mean)²) / total_count
+
+        Mean values outside the [5 %, 95 %] percentile of each DRP file are
+        excluded; their associated counts are zeroed so they do not contribute
+        to the pooled total.
         """
         total_count = mean_acc = None
 
@@ -222,7 +252,9 @@ class DRPAggregator:
             except Exception as exc:
                 logger.warning('Could not read DRP %s: %s', p, exc)
                 continue
-            c = np.where(np.isfinite(c), c, 0.0)
+            m = self._clip_outliers(m)
+            # zero count where m is NaN (original nodata or clipped outlier)
+            c = np.where(np.isfinite(c) & np.isfinite(m), c, 0.0)
             m = np.where(np.isfinite(m), m, 0.0)
             if total_count is None:
                 total_count = np.zeros_like(c)
@@ -242,7 +274,7 @@ class DRPAggregator:
         safe_count = np.where(total_count > 0, total_count, 1.0)
         pooled_mean = mean_acc / safe_count
 
-        # Pass 2: compute pooled variance
+        # Pass 2: compute pooled variance (same outlier mask as pass 1)
         var_acc = np.zeros_like(pooled_mean)
         for p in drp_paths:
             try:
@@ -254,7 +286,8 @@ class DRPAggregator:
                 continue
             if c.shape != pooled_mean.shape:
                 continue
-            c = np.where(np.isfinite(c), c, 0.0)
+            m = self._clip_outliers(m)
+            c = np.where(np.isfinite(c) & np.isfinite(m), c, 0.0)
             m = np.where(np.isfinite(m), m, 0.0)
             s = np.where(np.isfinite(s), s, 0.0)
             var_acc += c * (s**2 + (m - pooled_mean)**2)
