@@ -57,18 +57,21 @@ def build_parameters(cfg: dict) -> dict:
     """Translate YAML config into the kwargs dict expected by gaac.main.run()."""
     from skimage.morphology import square
 
-    masking_cfg = cfg['masking'].copy()
-    selem_size  = masking_cfg.pop('selem_size', 5)
-    masking_cfg['selem'] = square(selem_size)
+    water_masking_cfg = cfg['water_masking'].copy()
+    selem_size        = water_masking_cfg.pop('selem_size', 5)
+    water_masking_cfg['selem'] = square(selem_size)
+
+    snow_masking_cfg = cfg.get('snow_masking', {}).copy()
 
     aerosol_cfg = cfg['aerosol'].copy()
     raw_best    = aerosol_cfg.get('best_ind', [])
     aerosol_cfg['best_ind'] = tuple(raw_best) if raw_best else ()
 
     return {
-        'masking':  masking_cfg,
-        'rayleigh': cfg['rayleigh'].copy(),
-        'aerosol':  aerosol_cfg,
+        'masking':      water_masking_cfg,
+        'snow_masking': snow_masking_cfg,
+        'rayleigh':     cfg['rayleigh'].copy(),
+        'aerosol':      aerosol_cfg,
     }
 
 
@@ -137,7 +140,7 @@ def main():
     input_type = cfg.get('input_type', 'ACOTOA')
 
     if args.ndwi_threshold is not None:
-        cfg['masking']['threshold'] = args.ndwi_threshold
+        cfg['water_masking']['threshold'] = args.ndwi_threshold
 
     logger = setup_logging(out_dir)
     logger.info(f'Config       : {args.config}')
@@ -145,7 +148,7 @@ def main():
     logger.info(f'Output dir   : {out_dir}')
     logger.info(f'Input type   : {input_type}')
     logger.info(f'Clear-water threshold: {threshold:.1f} %')
-    logger.info(f'NDWI threshold: {cfg["masking"]["threshold"]}')
+    logger.info(f'NDWI threshold: {cfg["water_masking"]["threshold"]}')
 
     scenes = sorted(glob.glob(os.path.join(l1_dir, '*.tif')))
     if not scenes:

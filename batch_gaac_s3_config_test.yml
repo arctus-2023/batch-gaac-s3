@@ -35,12 +35,19 @@ rayleigh:
   use_ancillary: false    # use ancillary atmospheric data (e.g. MERRA-2) for Rayleigh correction
 
 # ── Water masking ─────────────────────────────────────────────────────────────
-masking:
+water_masking:
   method: ndwi            # water-index method (only ndwi supported)
   threshold: 0.0          # NDWI threshold — pixels above are classified as water
   replace_output: false   # recompute mask even if it already exists
   closing: true           # apply morphological closing to fill small holes
   selem_size: 5           # side length (px) of the square structuring element
+
+# ── Snow / ice masking ───────────────────────────────────────────────────────
+snow_masking:
+  snow_method: ENDSIII      # ENDSIII (default) or NDSI_OTSU
+  threshold: -0.01          # ENDSIII fixed threshold (ignored when use_otsu: true)
+  use_otsu: false           # compute threshold via Otsu on permanent water pixels
+  min_area_pixels: 10       # remove connected components smaller than this
 
 # ── Aerosol & AC ─────────────────────────────────────────────────────────────
 aerosol:
