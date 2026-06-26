@@ -43,11 +43,21 @@ water_masking:
   selem_size: 5           # side length (px) of the square structuring element
 
 # ── Snow / ice masking ───────────────────────────────────────────────────────
+# ENDSIII (default): spectral index (Oa12-Oa16+Oa20-Oa21)/(Oa12+Oa16+Oa20+Oa21)
 snow_masking:
   snow_method: ENDSIII      # ENDSIII (default) or NDSI_OTSU
   threshold: -0.01          # ENDSIII fixed threshold (ignored when use_otsu: true)
   use_otsu: false           # compute threshold via Otsu on permanent water pixels
   min_area_pixels: 10       # remove connected components smaller than this
+
+# NDSI_OTSU alternative: NDSI (Oa17/Oa21) > snow_threshold AND Oa02 > blue_threshold.
+# Set use_otsu: true to derive both thresholds via Otsu on permanent water pixels
+# (classification band values 1 and 3); fixed thresholds are used as fallback.
+#snow_masking:
+#  snow_method: NDSI_OTSU
+#  use_otsu: false           # true: Otsu thresholds (falls back to fixed); false: fixed only
+#  snow_threshold: 0.03     # NDSI threshold (direct when use_otsu false, fallback otherwise)
+#  blue_threshold: 0.5      # Oa02 (412 nm) threshold (direct when use_otsu false, fallback otherwise)
 
 # ── Aerosol & AC ─────────────────────────────────────────────────────────────
 aerosol:
