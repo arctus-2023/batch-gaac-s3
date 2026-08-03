@@ -9,7 +9,7 @@ acolite_dir: /home/yan/WorkSpace/open_source/acolite_origin/acolite
 l1_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L1/s3_olci/JamesBay/2025
 
 # Root output directory; each scene gets its own sub-folder (<scene>_GAAC/)
-output_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_TEST
+output_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_TEST_SNOW
 
 # ── Scene filter ─────────────────────────────────────────────────────────────
 # Minimum clear-water percentage (0–100). Scenes below this value are skipped.
@@ -46,9 +46,11 @@ water_masking:
 # ENDSIII (default): spectral index (Oa12-Oa16+Oa20-Oa21)/(Oa12+Oa16+Oa20+Oa21)
 snow_masking:
   snow_method: ENDSIII      # ENDSIII (default) or NDSI_OTSU
-  threshold: -0.01          # ENDSIII fixed threshold (ignored when use_otsu: true)
+  threshold: -0.06          # ENDSIII fixed threshold (ignored when use_otsu: true)
   use_otsu: false           # compute threshold via Otsu on permanent water pixels
   min_area_pixels: 10       # remove connected components smaller than this
+  nir865_threshold: 0.05    # Oa17 (865 nm) brightness gate: pixels with rhot_865 >= this
+                            # value are excluded from the ENDSIII snow mask
 
 # NDSI_OTSU alternative: NDSI (Oa17/Oa21) > snow_threshold AND Oa02 > blue_threshold.
 # Set use_otsu: true to derive both thresholds via Otsu on permanent water pixels

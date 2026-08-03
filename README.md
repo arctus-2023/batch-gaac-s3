@@ -17,7 +17,7 @@ The pipeline processes each scene through three stages:
 2. **Masking** — combines three independent masks into a single final product (`*_mask.tif`):
    - *Water*: pure NDWI (`*_watermask.tif`, `0=null, 5=water`)
    - *Cloud*: classification band values `{2, 3}` (cloud over land or water)
-   - *Snow/ice*: dual Otsu threshold on NDSI and Oa02 (blue), computed from permanent water pixels in the classification band; falls back to fixed thresholds if the classification band is absent
+   - *Snow/ice*: ENDSIII index `(Oa12−Oa16+Oa20−Oa21)/(Oa12+Oa16+Oa20+Oa21)` > threshold (fixed −0.01 by default; set `use_otsu: true` to compute via Otsu on permanent water pixels from the classification band); morphological opening/closing and small-component removal applied
 3. **Aerosol correction** — GA optimisation + adjacency-effect and sky/sun-glint correction; writes `*_rhor_rhow.tif` and `*_rhor_rhoadj.tif`
 
 When `tile_size` is set, the aerosol step runs one GA optimisation per tile and interpolates the result spatially across the scene (tiled AC). Optimization pixel locations are exported automatically as `*_rhor_opt_pixels.gpkg`.

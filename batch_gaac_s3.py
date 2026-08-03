@@ -111,6 +111,9 @@ def main():
     parser.add_argument('--ndwi-threshold', type=float, default=None, metavar='T',
                         help='Override the NDWI water-mask threshold from the config '
                              '(e.g. 0.3); pixels with NDWI > T are classified as water')
+    parser.add_argument('--nir865-threshold', type=float, default=None, metavar='T',
+                        help='Override the ENDSIII nir865_threshold from the config '
+                             '(e.g. 0.05); ENDSIII snow pixels with rhot_865 >= T are excluded')
     parser.add_argument('--overwrite', action='store_true', default=False,
                         help='Reprocess scenes even if the output folder already exists '
                              '(default: skip scenes whose <scene>_GAAC/ folder is present)')
@@ -141,6 +144,8 @@ def main():
 
     if args.ndwi_threshold is not None:
         cfg['water_masking']['threshold'] = args.ndwi_threshold
+    if args.nir865_threshold is not None:
+        cfg.setdefault('snow_masking', {})['nir865_threshold'] = args.nir865_threshold
 
     logger = setup_logging(out_dir)
     logger.info(f'Config       : {args.config}')
@@ -149,6 +154,7 @@ def main():
     logger.info(f'Input type   : {input_type}')
     logger.info(f'Clear-water threshold: {threshold:.1f} %')
     logger.info(f'NDWI threshold: {cfg["water_masking"]["threshold"]}')
+    logger.info(f'NIR865 threshold (ENDSIII): {cfg.get("snow_masking", {}).get("nir865_threshold", 0.05)}')
 
     scenes = sorted(glob.glob(os.path.join(l1_dir, '*.tif')))
     if not scenes:
