@@ -85,6 +85,7 @@ def write_drp_tif(
     units: str,
     period: str,
     date_label: str,
+    extra_tags: dict | None = None,
 ) -> None:
     """Write a 3-band DRP composite GeoTIFF.
 
@@ -98,6 +99,7 @@ def write_drp_tif(
     ----------
     period     : 'daily' | 'monthly' | 'yearly'
     date_label : e.g. '20250710', '202507', '2025'
+    extra_tags : optional dict of additional tags (contributing sensors, grid, …)
     """
     out_meta = meta.copy()
     out_meta.update({
@@ -130,3 +132,5 @@ def write_drp_tif(
             software_name='wq_retrieve',
             version=__version__,
         )
+        if extra_tags:
+            dst.update_tags(**extra_tags)

@@ -1,11 +1,15 @@
 """WQScene — lazy-loading adapter for a single L2 rhow + mask pair.
 
-The Sentinel-3 OLCI L2 rhow file stores ρw (water-leaving reflectance, π·Rrs).
-WQScene exposes both:
+The GAAC L2 rhow file stores ρw (water-leaving reflectance, π·Rrs) for every
+supported instrument — Sentinel-3 OLCI, Sentinel-2 MSI, and Landsat-8/9
+OLI/OLI-2.  WQScene exposes both:
   .rrs  — Rrs = rhow / π  (for ratio / Rrs-calibrated algorithms)
   .rhow — raw ρw           (for Nechad/Dogliotti ρw-calibrated algorithms)
 
-Both dicts have the same NaN mask applied: non-clear-water pixels are NaN.
+Both dicts have the same NaN mask applied: non-clear-water pixels are NaN, and
+both are keyed by the band centres the file actually carries (e.g. 655 nm on
+OLI, 665 nm on OLCI).  Use `select()` to fetch algorithm-nominal wavelengths;
+it resolves them onto the nearest available band.
 """
 
 from __future__ import annotations
@@ -18,8 +22,13 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
+from .sensors import DEFAULT_TOLERANCE, SensorSpec, detect_sensor, resolve_wavelengths
+
 # regex to parse band descriptions, e.g. 'rhow(443)' → 443
 _DESC_RE = re.compile(r'rhow\((\d+)\)')
+
+# YYYYMMDD anywhere in the filename, e.g. '20250615T160535' or '_20250628_'
+_DATE_RE = re.compile(r'(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)')
 
 _PI = float(np.pi)
 
@@ -27,14 +36,43 @@ _PI = float(np.pi)
 _RHOW_NODATA = 1.0
 
 
+def parse_scene_date(name: str) -> datetime.date | None:
+    """First valid YYYYMMDD token in a scene or file name; None if there is none.
+
+    Handles every GAAC naming convention in use:
+        S3A_L1TOA_20250615T160535_997148+0000_JamesBay_300m_rhor_rhow.tif
+        S2_L1TOA_20170831T1628_La_Grande_S2_grid_60m_rhor_rhow.tif
+        LC08_L1TOA_20250628_326451_30m_rhor_rhow.tif
+    """
+    for m in _DATE_RE.finditer(name):
+        try:
+            return datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            continue
+    return None
+
+
+class MissingBandsError(LookupError):
+    """Raised when a scene has no band within tolerance of a requested wavelength."""
+
+    def __init__(self, missing: list[int], available: list[int]) -> None:
+        super().__init__(
+            f'no band within tolerance of {missing} nm '
+            f'(scene carries {available} nm)'
+        )
+        self.missing = missing
+        self.available = available
+
+
 class WQScene:
     """Adapter that presents a single L2 scene as algorithm-ready arrays.
 
     Parameters
     ----------
-    rhow_path : path to *_rhor_rhow.tif (15-band float32 ρw)
+    rhow_path : path to *_rhor_rhow.tif (float32 ρw, one band per wavelength)
     mask_path : path to *_mask.tif or *_watermask.tif; if None, auto-detected
     gaac_gen_dir : optional path injected into sys.path for Cinputmask support
+    band_tolerance : max |nominal − actual| accepted when resolving bands [nm]
     """
 
     def __init__(
@@ -42,14 +80,17 @@ class WQScene:
         rhow_path: str | Path,
         mask_path: str | Path | None = None,
         gaac_gen_dir: str | None = None,
+        band_tolerance: int = DEFAULT_TOLERANCE,
     ) -> None:
         self.rhow_path = Path(rhow_path)
         self._mask_path = self._resolve_mask(mask_path)
         self._gaac_gen_dir = gaac_gen_dir
+        self.band_tolerance = int(band_tolerance)
         self._rrs: dict[int, np.ndarray] | None = None
         self._rhow_dict: dict[int, np.ndarray] | None = None
         self._water_mask: np.ndarray | None = None
         self._meta: dict | None = None
+        self._sensor: SensorSpec | None = None
         self.date: datetime.date = self._parse_date()
 
     # ── public properties ─────────────────────────────────────────────────────
@@ -83,25 +124,61 @@ class WQScene:
         return self._meta  # type: ignore[return-value]
 
     @property
+    def sensor(self) -> SensorSpec:
+        """Instrument that acquired this scene (from the file's `sensor` tag)."""
+        if self._sensor is None:
+            self._sensor = self._read_sensor()
+        return self._sensor
+
+    @property
+    def wavelengths(self) -> list[int]:
+        """Band centres (nm) the scene actually carries, ascending."""
+        return sorted(self.rhow)
+
+    @property
     def stem(self) -> str:
         """Scene name without _GAAC suffix, e.g. 'S3A_L1TOA_20250615T160535_...'."""
         name = self.rhow_path.parent.name
         return name.removesuffix('_GAAC') if name.endswith('_GAAC') else name
 
+    # ── band access ───────────────────────────────────────────────────────────
+
+    def resolve(self, wavelengths: list[int]) -> tuple[dict[int, int], list[int]]:
+        """Map nominal wavelengths onto this scene's nearest actual bands.
+
+        Returns ``({nominal: actual}, missing_nominals)``.
+        """
+        return resolve_wavelengths(self.wavelengths, wavelengths, self.band_tolerance)
+
+    def select(
+        self, wavelengths: list[int], quantity: str = 'Rrs'
+    ) -> dict[int, np.ndarray]:
+        """Return arrays for `wavelengths`, keyed by the *nominal* wavelength.
+
+        `quantity` is 'Rrs' (default) or 'rhow'.  Raises MissingBandsError when
+        any requested wavelength has no band within `band_tolerance`.
+        """
+        mapping, missing = self.resolve(wavelengths)
+        if missing:
+            raise MissingBandsError(missing, self.wavelengths)
+        source = self.rhow if quantity == 'rhow' else self.rrs
+        return {nominal: source[actual] for nominal, actual in mapping.items()}
+
     # ── private helpers ───────────────────────────────────────────────────────
 
     def _parse_date(self) -> datetime.date:
-        """Extract date from filename token at index 2.
+        """Acquisition date from the filename; epoch when the name carries none."""
+        return parse_scene_date(self.rhow_path.name) or datetime.date(1970, 1, 1)
 
-        e.g. S3A_L1TOA_20250615T160535_997148+0000_JamesBay_300m_rhor_rhow.tif
-             → tokens[2] = '20250615T160535' → 2025-06-15
-        """
-        tokens = self.rhow_path.name.split('_')
+    def _read_sensor(self) -> SensorSpec:
+        """Read the `sensor` tag from the rhow file; fall back to the scene name."""
+        tag = None
         try:
-            tok = tokens[2]  # '20250615T160535'
-            return datetime.date(int(tok[:4]), int(tok[4:6]), int(tok[6:8]))
-        except (IndexError, ValueError):
-            return datetime.date(1970, 1, 1)
+            with rasterio.open(self.rhow_path) as src:
+                tag = src.tags().get('sensor')
+        except Exception:
+            pass
+        return detect_sensor(tag, self.rhow_path.name)
 
     def _resolve_mask(self, mask_path: str | Path | None) -> Path:
         """Find the best available mask file in the same directory as rhow."""
@@ -148,6 +225,7 @@ class WQScene:
         rhow_dict: dict[int, np.ndarray] = {}
         with rasterio.open(self.rhow_path) as src:
             meta = src.meta.copy()
+            self._sensor = detect_sensor(src.tags().get('sensor'), self.rhow_path.name)
             for i in range(1, src.count + 1):
                 desc = src.descriptions[i - 1] or ''
                 m = _DESC_RE.match(desc)
@@ -193,7 +271,7 @@ class WQScene:
 
         Supports three mask encodings produced by the GAAC pipeline:
           S3 scheme    : clear_water_value tag = 0 (nodata=255)
-          SIMPLE scheme: clear_water_value tag = 100
+          SIMPLE scheme: clear_water_value tag = 100  (S2 / Landsat)
           Legacy wm    : mask_items tag contains 'water_5' (0=null, 5=water)
         """
         with rasterio.open(self._mask_path) as src:

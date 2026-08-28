@@ -9,13 +9,13 @@ gaac_gen_dir: /home/yan/WorkSpace/pycharm_proj/gaac_arctus/gaac_gen/src
 
 # Input: L2 directory containing *_GAAC/ scene subdirectories. Searched
 # recursively, so per-mission subdirectories (L2/S2/, L2/L8/, …) are picked up.
-l2_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_TEST/
+l2_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/L2/
 
 # Output: root for L3 product tree (PMP + DRP will be created here)
-l3_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L3_TEST/
+l3_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/L3/
 
 # AOI label used in DRP filenames, e.g. JamesBay_20250710_chla.tif
-aoi_name: JamesBay
+aoi_name: LaGrande
 
 # ── Band matching ─────────────────────────────────────────────────────────────
 # Algorithms declare nominal wavelengths (the OLCI-centric numbers used in the
