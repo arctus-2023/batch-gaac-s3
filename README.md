@@ -224,12 +224,12 @@ Wavelengths below are nominal; see band matching above. `python batch_wq.py <con
 | SPM | g m⁻³ | `dogliotti2015` | all | Red/NIR switching (665/865) |
 | | | `nechad2010` | all | Single-band (665, switches to 865) |
 | | | `doxaran2012` | all | NIR/green ratio (865/560) |
-| | | `mabit_powerlaw` | MSI, OLI | Single-band log-power — 705 nm on MSI, 665 nm on OLI |
+| | | `mabit_powerlaw` | all | Single-band log-power — 740 nm on MSI, 665 nm on OLI (B4) and OLCI (Oa8) |
 | Turbidity | FNU | `dogliotti2015_t` | all | Blended red/NIR switch (665/865) |
 | | | `dogliotti2015_hs` | all | Same coefficients, hard ρw(red) < 0.05 switch |
 | | | `nechad2016_olci` | OLCI | Multi-band OLCI LUT (665/709/865) |
 
-`mabit_redgreen`, `mabit_powerlaw`, `dogliotti2015_hs`, and `nir_red` are the forms used in the SAMBA / Eeyou-Sat `l3_MSI_OLI` L3 chain, ported here. The first three reproduce that chain bit-for-bit on MSI and OLI scenes. `nir_red` differs on one point: it returns NaN where the retrieval is negative — which is most of a clear-water scene — instead of clamping to 0, so that DRP temporal means are not loaded with a mass of exact zeros that are not measurements.
+`mabit_redgreen`, `mabit_powerlaw`, `dogliotti2015_hs`, and `nir_red` are the forms used in the SAMBA / Eeyou-Sat `l3_MSI_OLI` L3 chain, ported here. The first three reproduce that chain bit-for-bit on MSI and OLI scenes; `mabit_powerlaw` additionally runs on OLCI, reading Oa8 (665 nm) with the OLI red-band pair. `nir_red` differs on one point: it returns NaN where the retrieval is negative — which is most of a clear-water scene — instead of clamping to 0, so that DRP temporal means are not loaded with a mass of exact zeros that are not measurements.
 
 ### Usage
 

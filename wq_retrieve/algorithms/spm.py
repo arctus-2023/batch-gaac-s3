@@ -8,9 +8,10 @@ dogliotti2015: switching red/NIR algorithm (ρw at 665 + 865 nm)
                Dogliotti et al. 2015, Remote Sensing of Environment
 doxaran2012  : power-law NIR/VIS ratio — calibrated on Mackenzie Arctic plume
                Doxaran et al. 2012, Biogeosciences
-mabit_powerlaw: single-band log-power form used operationally for MSI and OLI
-               (SAMBA / Eeyou-Sat L3 chain); reads the red-edge band on MSI and
-               the red band on OLI, with a different coefficient pair for each
+mabit_powerlaw: single-band log-power form used operationally for MSI, OLI and
+               OLCI (SAMBA / Eeyou-Sat L3 chain); reads the 740 nm red-edge band
+               on MSI and the 665 nm red band on OLI (B4) and OLCI (Oa8), with a
+               coefficient pair per instrument family
 
 NOTE: nechad2010 and dogliotti2015 use input_quantity='rhow' (ρw = π·Rrs)
       because their calibration coefficients are formulated in terms of ρw.
@@ -20,7 +21,7 @@ NOTE: nechad2010 and dogliotti2015 use input_quantity='rhow' (ρw = π·Rrs)
 from __future__ import annotations
 import numpy as np
 from ..registry import register_algorithm
-from ..sensors import FAMILY_MSI, FAMILY_OLI
+from ..sensors import FAMILY_MSI, FAMILY_OLCI, FAMILY_OLI
 from .base import WQAlgorithm
 
 # Nechad2010 Table 2 band-specific coefficients (ρw formulation)
@@ -176,29 +177,33 @@ class Doxaran2012SPM(WQAlgorithm):
 
 # Mabit-style single-band SPM, per instrument family:
 #   band = nominal wavelength read; SPM = 10 ** (A · Rrs(band) ** B)
-# MSI uses the 705 nm red-edge band, OLI the 665 nm red band (OLI has no
-# red edge), each with its own calibration pair.
+# MSI reads the 740 nm red-edge band (B6); OLI and OLCI have no usable red edge
+# for this form and read the 665 nm red band instead — B4 on OLI, Oa8 on OLCI —
+# so they share the red-band calibration pair.
+_MABIT_RED = {'A': 13.0, 'B': 0.52}          # 665 nm: OLI B4 / OLCI Oa8
+
 _MABIT_SPM = {
-    FAMILY_MSI: {'band': 705, 'A': 17.0, 'B': 0.42},
-    FAMILY_OLI: {'band': 665, 'A': 13.0, 'B': 0.52},
+    FAMILY_MSI:  {'band': 740, 'A': 17.0, 'B': 0.42},
+    FAMILY_OLI:  {'band': 665, **_MABIT_RED},
+    FAMILY_OLCI: {'band': 665, **_MABIT_RED},
 }
 
 
 @register_algorithm('spm', 'mabit_powerlaw')
 class MabitPowerLawSPM(WQAlgorithm):
-    """Single-band log-power SPM used for MSI and OLI in the SAMBA L3 chain.
+    """Single-band log-power SPM used for MSI, OLI and OLCI in the SAMBA L3 chain.
 
     SPM = 10 ^ ( A · Rrs(λ) ^ B )
 
     The band and the coefficient pair are chosen from the instrument:
 
-        MSI  λ = 705 nm (red edge)   A = 17,  B = 0.42
-        OLI  λ = 665 nm (red)        A = 13,  B = 0.52
+        MSI   λ = 740 nm (red edge, B6)   A = 17,  B = 0.42
+        OLI   λ = 665 nm (red, B4)        A = 13,  B = 0.52
+        OLCI  λ = 665 nm (red, Oa8)       A = 13,  B = 0.52
 
-    Landsat OLI has no red-edge band, so it falls back to the red band with a
-    separately fitted pair rather than the MSI coefficients.  Restricted to
-    those two families: no OLCI calibration of this form has been published,
-    and OLCI scenes should use nechad2010, dogliotti2015, or doxaran2012.
+    Landsat OLI has no red-edge band, so it uses the red band with a separately
+    fitted pair rather than the MSI coefficients; OLCI reads the same 665 nm red
+    band (Oa8) and shares that pair.
 
     Coefficient overrides are given per family, e.g.
     ``params: {MSI_A: 17.5, OLI_B: 0.50}``.
@@ -209,17 +214,15 @@ class MabitPowerLawSPM(WQAlgorithm):
     reference = ('Mabit et al. (2022). Frontiers in Remote Sensing 3:834908. '
                  'doi:10.3389/frsen.2022.834908 (single-band form, SAMBA L3 chain)')
     required_bands = {
-        FAMILY_MSI: [_MABIT_SPM[FAMILY_MSI]['band']],
-        FAMILY_OLI: [_MABIT_SPM[FAMILY_OLI]['band']],
+        family: [spec['band']] for family, spec in _MABIT_SPM.items()
     }
-    families = (FAMILY_MSI, FAMILY_OLI)
+    families = tuple(_MABIT_SPM)
     input_quantity = 'Rrs'
 
     _DEFAULTS = {
-        'MSI_A': _MABIT_SPM[FAMILY_MSI]['A'],
-        'MSI_B': _MABIT_SPM[FAMILY_MSI]['B'],
-        'OLI_A': _MABIT_SPM[FAMILY_OLI]['A'],
-        'OLI_B': _MABIT_SPM[FAMILY_OLI]['B'],
+        f'{family}_{coeff}': spec[coeff]
+        for family, spec in _MABIT_SPM.items()
+        for coeff in ('A', 'B')
     }
 
     def compute(self, bands: dict[int, np.ndarray]) -> np.ndarray:

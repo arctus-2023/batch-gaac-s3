@@ -40,7 +40,7 @@ band_tolerance: 15
 # for the live table with bands and supported sensors):
 #   chla      : oc4me (OLCI) | gons2005 (OLCI/MSI) | ndci (OLCI/MSI) | nir_red (OLI)
 #   cdom      : glukhovets2020 | mabit2022 | mabit_redgreen        (all missions)
-#   spm       : nechad2010 | dogliotti2015 | doxaran2012 (all) | mabit_powerlaw (MSI/OLI)
+#   spm       : nechad2010 | dogliotti2015 | doxaran2012 | mabit_powerlaw (all missions)
 #   turbidity : dogliotti2015_t | dogliotti2015_hs (all) | nechad2016_olci (OLCI)
 #
 # An algorithm that a scene cannot support — wrong instrument family, or a
@@ -76,8 +76,8 @@ wq_products:
     algorithm: dogliotti2015   # red/NIR switching, wide dynamic range
     params: {}
     sensors:
-      MSI: mabit_powerlaw      # red-edge single-band form (A=17, B=0.42)
-      OLI: mabit_powerlaw      # red single-band form      (A=13, B=0.52)
+      MSI: mabit_powerlaw      # 740 nm red-edge single-band form (A=17, B=0.42)
+      OLI: mabit_powerlaw      # 665 nm red single-band form      (A=13, B=0.52)
     # Per-family coefficient override example:
     # sensors:
     #   MSI:
