@@ -1,0 +1,121 @@
+# Water Quality Retrieval Pipeline — Sentinel-3 OLCI only
+# James Bay / La Grande, GAAC-corrected S3A + S3B scenes.
+#
+#   conda activate gaac
+#   cd batch/
+#   ./.venv/bin/python batch_wq.py wq_config_jamesbay_s3.yml
+
+# Optional: inject gaac_gen into sys.path to enable Cinputmask for mask reading.
+# If omitted, the pipeline falls back to reading mask tags directly (works for
+# all mask files produced by the GAAC batch pipeline).
+gaac_gen_dir: /home/yan/WorkSpace/pycharm_proj/gaac_arctus/gaac_gen/src
+
+# Input: L2 directory containing *_GAAC/ scene subdirectories, searched
+# recursively.  L2_TEST_SNOW holds the fullest S3 set (S3A + S3B, June–July
+# 2025); swap for .../S3OLCI/L2_TEST/ or .../S3OLCI/L2/ as needed.
+# Scenes without a *_rhor_rhow.tif are skipped with a warning.
+l2_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_TEST_SNOW/
+
+# Output: root for L3 product tree (PMP/ + DRP/ are created here)
+l3_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L3/
+
+# AOI label used in DRP filenames, e.g. JamesBay_20250710_chla.tif
+aoi_name: JamesBay
+
+# ── Band matching ─────────────────────────────────────────────────────────────
+# Algorithms declare nominal wavelengths and each is matched to the nearest band
+# the scene actually carries, within this tolerance [nm].  The nominal numbers
+# are OLCI-centric, so on S3 every band matches exactly and no substitution is
+# made — this key only matters if MSI/OLI scenes are ever added to l2_dir.
+band_tolerance: 15
+
+# ── Water quality products ────────────────────────────────────────────────────
+# All four algorithms below are OLCI-native: every band they need (560, 665,
+# 709, 865 nm) is a real OLCI band, so nothing is substituted or skipped.
+# No `sensors:` override blocks are needed in a single-mission config.
+#
+# OLCI-capable algorithms (`--list-algorithms` prints the live table):
+#   chla      : oc4me | gons2005 | ndci            (nir_red is OLI-only)
+#   cdom      : glukhovets2020 | mabit2022 | mabit_redgreen
+#   spm       : nechad2010 | dogliotti2015 | doxaran2012 | mabit_powerlaw
+#   turbidity : dogliotti2015_t | dogliotti2015_hs | nechad2016_olci
+
+wq_products:
+  chla:
+    enabled: true
+    algorithm: ndci            # normalised difference chlorophyll index (665/709)
+    params: {}
+    # Chosen over the three-band gons2005, whose 709/779 nm terms go invalid
+    # across most of the water area in this AOI.  oc4me is the OLCI operational
+    # blue-green ratio (443/490/510/560 nm), but it degrades badly in the
+    # CDOM-rich, turbid plume waters here.
+    # algorithm: gons2005
+    # algorithm: oc4me
+    #
+    # Override example (quadratic NDCI→chla fit):
+    # params:
+    #   A0: 14.039
+    #   A1: 86.115
+    #   A2: 194.325
+
+  cdom:
+    enabled: true
+    algorithm: mabit_redgreen  # red/green log-power (665/560), SAMBA L3 chain
+    params: {}
+    # mabit2022 (443/560) is the James Bay / St. Lawrence blue-ratio fit — fine
+    # on OLCI, which resolves 443 nm well; mabit_redgreen is used here to stay
+    # consistent with the multi-mission LaGrande config.
+    # algorithm: mabit2022
+    # params:
+    #   A: 20.0
+    #   B: 1.8
+
+  spm:
+    enabled: true
+    algorithm: mabit_powerlaw  # single-band log-power, SAMBA l3_MSI_OLI form
+    params: {}
+    # On OLCI this reads the 665 nm red band (Oa8) with the same fitted pair as
+    # OLI B4 (A=13, B=0.52).  dogliotti2015 is the red/NIR switching
+    # alternative, with a wider dynamic range:
+    # algorithm: dogliotti2015
+    # params: {OLCI_A: 13.0, OLCI_B: 0.52}
+
+  turbidity:
+    enabled: true
+    algorithm: dogliotti2015_hs # hard ρw(red)<0.05 switch, matching the SAMBA L3 chain
+    params: {}
+    # dogliotti2015_t is the same coefficients with a blended 7–20 FNU switch
+    # instead of the hard one.  nechad2016_olci is the sharper OLCI-specific
+    # three-band form (665/709/865 nm), unavailable on MSI/OLI:
+    # algorithm: dogliotti2015_t
+    # algorithm: nechad2016_olci
+
+# ── Aggregation ───────────────────────────────────────────────────────────────
+# DRP composites merge every contributing scene for a period into one product:
+# <aoi>_<date>_<product>.tif.  Daily composites are where this earns its keep on
+# S3 — S3A and S3B overpass James Bay on the same day, and their PMPs are pooled
+# into a single mean per date.
+aggregation:
+  method: mean                 # temporal statistic (mean only currently supported)
+  periods:
+    - daily
+    - monthly
+    - yearly
+
+  # Restrict composites to OLCI.  Equivalent to `all` for the current l2_dir,
+  # but stated explicitly so the composites stay S3-only if MSI/OLI scenes are
+  # ever dropped into the same tree.  PMPs are still produced for every scene.
+  sensors: [OLCI]
+
+  # Common target grid, pinned to the native OLCI grid that every S3 scene here
+  # already uses (EPSG:32617 / 300 m / 1529 rows x 562 cols).  Because it is an
+  # exact match, the warp is an identity and no resampling happens — while still
+  # keeping the composite extent fixed across runs as scenes come and go.
+  grid:
+    crs: EPSG:32617
+    resolution: 300
+    bounds: [518233.4, 5657121.5, 686833.4, 6115821.5]
+    resampling: average
+
+# Set true to recompute and overwrite existing output files
+replace_output: true
