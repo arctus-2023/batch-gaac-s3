@@ -9,13 +9,13 @@ gaac_gen_dir: /home/yan/WorkSpace/pycharm_proj/gaac_arctus/gaac_gen/src
 
 # Input: L2 directory containing *_GAAC/ scene subdirectories. Searched
 # recursively, so per-mission subdirectories (L2/S2/, L2/L8/, …) are picked up.
-l2_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_TEST/
+l2_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/L2/
 
 # Output: root for L3 product tree (PMP + DRP will be created here)
-l3_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L3_TEST/
+l3_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/L3/
 
 # AOI label used in DRP filenames, e.g. JamesBay_20250710_chla.tif
-aoi_name: JamesBay
+aoi_name: LaGrande
 
 # ── Band matching ─────────────────────────────────────────────────────────────
 # Algorithms declare nominal wavelengths (the OLCI-centric numbers used in the
@@ -50,47 +50,56 @@ band_tolerance: 15
 wq_products:
   chla:
     enabled: true
-    algorithm: gons2005        # NIR-red, CDOM-insensitive — recommended for James Bay
+    algorithm: ndci            # normalised difference chlorophyll index (665/709)
     params: {}
     sensors:
-      MSI: ndci                # MSI has a red edge (704 nm) but no 779 nm band
       OLI: nir_red             # OLI has no red edge at all — empirical proxy only
-    # Override example:
+    # OLCI and MSI both run ndci: the 665/709 nm pair resolves on MSI to B4/B5
+    # (665, 704 nm), inside band_tolerance.  Preferred here over the three-band
+    # gons2005, whose 709/779 nm terms go invalid over most of this reservoir —
+    # it returned chla on only 2–12% of water pixels, against ~100% for ndci.
+    # Override example (quadratic NDCI→chla fit):
     # params:
-    #   aph_star: 0.014        # m² mg⁻¹, lower value for cold arctic phytoplankton
+    #   A0: 14.039
+    #   A1: 86.115
+    #   A2: 194.325
 
   cdom:
     enabled: true
-    algorithm: mabit2022       # James Bay / St. Lawrence calibrated
+    algorithm: mabit_redgreen  # red/green log-power (665/560), SAMBA L3 chain
     params: {}
-    sensors:
-      MSI: mabit_redgreen      # red/green form — avoids the coarse MSI/OLI blue bands
-      OLI: mabit_redgreen
+    # One algorithm for every mission: mabit_redgreen needs only a red and a
+    # green band, both of which OLCI, MSI and OLI carry, so no per-sensor
+    # override is needed and the cross-sensor DRP composites stay comparable.
+    # The blue-ratio alternatives (mabit2022 443/560, glukhovets2020 443/490)
+    # lean on bands MSI and OLI resolve too coarsely for CDOM.
     # Override example:
     # params:
-    #   alpha: 0.90
-    #   beta: -1.35
+    #   A: 20.0
+    #   B: 1.8
 
   spm:
     enabled: true
-    algorithm: dogliotti2015   # red/NIR switching, wide dynamic range
+    algorithm: mabit_powerlaw  # single-band log-power, SAMBA l3_MSI_OLI form
     params: {}
-    sensors:
-      MSI: mabit_powerlaw      # 740 nm red-edge single-band form (A=17, B=0.42)
-      OLI: mabit_powerlaw      # 665 nm red single-band form      (A=13, B=0.52)
+    # Runs on all three families, but NOT on one shared calibration: the band
+    # and the fitted pair are per-instrument (MSI 740 nm A=17 B=0.42; OLI 665 nm
+    # B4 and OLCI 665 nm Oa8 both A=13 B=0.52).  Cross-sensor DRP composites
+    # therefore pool retrievals from separate fits — acceptable here because it
+    # matches the SAMBA notebook, but it is why mabit_powerlaw and dogliotti2015
+    # must not be mixed across missions inside one composite.
     # Per-family coefficient override example:
-    # sensors:
-    #   MSI:
-    #     algorithm: mabit_powerlaw
-    #     params: {MSI_A: 17.5, MSI_B: 0.42}
+    # params: {MSI_A: 17.5, OLI_A: 13.0, OLCI_A: 13.0}
 
   turbidity:
     enabled: true
-    algorithm: dogliotti2015_t # blended red/NIR switch, returns FNU directly
+    algorithm: dogliotti2015_hs # hard ρw(red)<0.05 switch, matching the SAMBA L3 chain
     params: {}
-    sensors:
-      MSI: dogliotti2015_hs    # hard ρw(red)<0.05 switch, matching the SAMBA L3 chain
-      OLI: dogliotti2015_hs
+    # One algorithm for every mission: 665 + 865 nm exist on OLCI, MSI and OLI
+    # alike, so no per-sensor override is needed and the cross-sensor DRP
+    # composites stay on a single calibration.  nechad2016_olci is the sharper
+    # OLCI-only alternative (its middle branch is the Oa11 709 nm LUT, which MSI
+    # and OLI have no equivalent for), at the cost of that comparability.
 
 # ── Aggregation ───────────────────────────────────────────────────────────────
 # DRP composites merge every contributing mission for a period into one product:

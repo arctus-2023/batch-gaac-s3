@@ -8,6 +8,10 @@ dogliotti2015: switching red/NIR algorithm (ρw at 665 + 865 nm)
                Dogliotti et al. 2015, Remote Sensing of Environment
 doxaran2012  : power-law NIR/VIS ratio — calibrated on Mackenzie Arctic plume
                Doxaran et al. 2012, Biogeosciences
+mabit_powerlaw: single-band log-power form used operationally for MSI, OLI and
+               OLCI (SAMBA / Eeyou-Sat L3 chain); reads the 740 nm red-edge band
+               on MSI and the 665 nm red band on OLI (B4) and OLCI (Oa8), with a
+               coefficient pair per instrument family
 
 NOTE: nechad2010 and dogliotti2015 use input_quantity='rhow' (ρw = π·Rrs)
       because their calibration coefficients are formulated in terms of ρw.
@@ -17,6 +21,7 @@ NOTE: nechad2010 and dogliotti2015 use input_quantity='rhow' (ρw = π·Rrs)
 from __future__ import annotations
 import numpy as np
 from ..registry import register_algorithm
+from ..sensors import FAMILY_MSI, FAMILY_OLCI, FAMILY_OLI
 from .base import WQAlgorithm
 
 # Nechad2010 Table 2 band-specific coefficients (ρw formulation)
@@ -167,4 +172,71 @@ class Doxaran2012SPM(WQAlgorithm):
         with np.errstate(divide='ignore', invalid='ignore'):
             ratio = np.where(r560 > 0, r865 / r560, np.nan)
             result = self.A * np.power(ratio, self.B)
+        return np.where(result > 0, result, np.nan).astype(np.float32)
+
+
+# Mabit-style single-band SPM, per instrument family:
+#   band = nominal wavelength read; SPM = 10 ** (A · Rrs(band) ** B)
+# MSI reads the 740 nm red-edge band (B6); OLI and OLCI have no usable red edge
+# for this form and read the 665 nm red band instead — B4 on OLI, Oa8 on OLCI —
+# so they share the red-band calibration pair.
+_MABIT_RED = {'A': 13.0, 'B': 0.52}          # 665 nm: OLI B4 / OLCI Oa8
+
+_MABIT_SPM = {
+    FAMILY_MSI:  {'band': 740, 'A': 17.0, 'B': 0.42},
+    FAMILY_OLI:  {'band': 665, **_MABIT_RED},
+    FAMILY_OLCI: {'band': 665, **_MABIT_RED},
+}
+
+
+@register_algorithm('spm', 'mabit_powerlaw')
+class MabitPowerLawSPM(WQAlgorithm):
+    """Single-band log-power SPM used for MSI, OLI and OLCI in the SAMBA L3 chain.
+
+    SPM = 10 ^ ( A · Rrs(λ) ^ B )
+
+    The band and the coefficient pair are chosen from the instrument:
+
+        MSI   λ = 740 nm (red edge, B6)   A = 17,  B = 0.42
+        OLI   λ = 665 nm (red, B4)        A = 13,  B = 0.52
+        OLCI  λ = 665 nm (red, Oa8)       A = 13,  B = 0.52
+
+    Landsat OLI has no red-edge band, so it uses the red band with a separately
+    fitted pair rather than the MSI coefficients; OLCI reads the same 665 nm red
+    band (Oa8) and shares that pair.
+
+    Coefficient overrides are given per family, e.g.
+    ``params: {MSI_A: 17.5, OLI_B: 0.50}``.
+    """
+    product = 'spm'
+    name = 'mabit_powerlaw'
+    units = 'g m-3'
+    reference = ('Mabit et al. (2022). Frontiers in Remote Sensing 3:834908. '
+                 'doi:10.3389/frsen.2022.834908 (single-band form, SAMBA L3 chain)')
+    required_bands = {
+        family: [spec['band']] for family, spec in _MABIT_SPM.items()
+    }
+    families = tuple(_MABIT_SPM)
+    input_quantity = 'Rrs'
+
+    _DEFAULTS = {
+        f'{family}_{coeff}': spec[coeff]
+        for family, spec in _MABIT_SPM.items()
+        for coeff in ('A', 'B')
+    }
+
+    def compute(self, bands: dict[int, np.ndarray]) -> np.ndarray:
+        family = self.family
+        if family not in _MABIT_SPM:
+            raise ValueError(
+                f'{self.name} has no calibration for family {family!r}; '
+                f'available: {sorted(_MABIT_SPM)}'
+            )
+        rrs = bands[_MABIT_SPM[family]['band']]
+        A = getattr(self, f'{family}_A')
+        B = getattr(self, f'{family}_B')
+        with np.errstate(divide='ignore', invalid='ignore'):
+            # Rrs must be positive: a fractional power of a negative Rrs is undefined.
+            base = np.where(rrs > 0, rrs, np.nan)
+            result = np.power(10.0, A * np.power(base, B))
         return np.where(result > 0, result, np.nan).astype(np.float32)

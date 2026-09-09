@@ -154,6 +154,18 @@ Each processed scene produces a `<scene_name>_GAAC/` subdirectory containing:
 
 Takes `*_GAAC/` directories produced by `batch_gaac_s3.py` and retrieves four water quality variables from the water-leaving reflectance (`*_rhor_rhow.tif`).
 
+### Supported sensors
+
+| Family | Platforms | Water bands in the L2 file |
+|--------|-----------|----------------------------|
+| `OLCI` | Sentinel-3A / 3B | 400 412 443 490 510 560 620 665 674 682 709 754 779 865 884 |
+| `MSI` | Sentinel-2A / 2B / 2C | 442 492 559 665 704 739 780 833 864 |
+| `OLI` | Landsat-8 OLI, Landsat-9 OLI-2 | 443 482 561 655 865 |
+
+Each scene's instrument comes from the `sensor` tag the GAAC writer stamps on the rhow file, falling back to the scene name. `l2_dir` is searched **recursively**, so per-mission subdirectories (`L2/S2/`, `L2/L8/`, …) are picked up alongside scenes at the top level.
+
+Algorithms declare *nominal* wavelengths — the OLCI-centric numbers used in the literature — and each is matched to the nearest band the scene actually carries, within `band_tolerance` (default ±15 nm). So an algorithm asking for 665 nm reads OLI's 655 nm band and one asking for 709 nm reads MSI's 704 nm band, while a request with no counterpart (510 nm on MSI/OLI) is reported missing and that product is skipped for the scene with a warning. Substitutions are logged per scene.
+
 ### Products
 
 | Tier | Description | Files |
@@ -163,22 +175,61 @@ Takes `*_GAAC/` directories produced by `batch_gaac_s3.py` and retrieves four wa
 | **DRP monthly** | Count-weighted pool of daily DRPs | 3 bands |
 | **DRP yearly** | Count-weighted pool of monthly DRPs | 3 bands |
 
-Outliers (values outside the [5 %, 95 %] percentile of finite pixels in each input file) are excluded before accumulation.
+Outliers (values outside the [5 %, 95 %] percentile of finite pixels in each input file) are excluded before accumulation. Clipping happens at the input's native resolution *before* any warp, so extreme pixels are removed rather than smeared into coarser target cells.
+
+### Merging across sensors
+
+DRP composites merge every contributing mission for a period into one product — `<aoi>_<date>_<var>.tif`. Since the missions do not share a grid, each PMP is warped onto a common target grid first, set by `aggregation.grid`:
+
+```yaml
+aggregation:
+  sensors: all                 # or [MSI, OLI] / [LANDSAT] / [S2B] — see below
+  grid:
+    crs: EPSG:32617
+    resolution: 30             # metres; single value or [xres, yres]
+    bounds: [596055, 5932935, 649125, 5999145]   # or `auto` = union of inputs
+    resampling: average        # average | bilinear | cubic | nearest | mode | min | max | med
+```
+
+Fixing the grid in the config keeps composites comparable across runs even as the set of available scenes changes — prefer it to `bounds: auto`, which lets the extent move between runs. Omit the `grid` block entirely and inputs that already share a grid are composited in place with no warping at all; a mixed set then falls back to the finest contributing resolution, with a warning.
+
+`average` is the right resampling for downsampling continuous fields; NaN pixels are excluded from each average rather than counted as zero. An input already on the target grid is passed through untouched.
+
+`aggregation.sensors` restricts which sensors take part. Selectors work at four granularities, and `--sensor` on the command line overrides the config for one run:
+
+| Granularity | Examples |
+|---|---|
+| Exact sensor tag | `S3_OLCIA`, `S2_MSIB`, `L8_OLI`, `L9_OLI2` |
+| Platform | `S3A`, `S2B`, `L8`, `L9` |
+| Mission series | `S3`, `S2`, `LANDSAT` |
+| Instrument family | `OLCI`, `MSI`, `OLI` |
+
+PMPs are still produced for every scene; this only filters the composites.
+
+Merging missions can also merge *algorithms* — a product may use `ndci` on MSI and `nir_red` on OLI. That is allowed, recorded in the output's `algorithm` and `sensors` tags, and logged as a warning so it does not pass unnoticed.
 
 ### Algorithms
 
-| Variable | Units | Algorithm key | Method |
-|----------|-------|---------------|--------|
-| Chla | mg m⁻³ | `gons2005` | NIR-red (665/709), CDOM-insensitive |
-| | | `oc4me` | OC4Me log-polynomial (Rrs 443/490/510/560) |
-| | | `ndci` | NDCI (665/709) |
-| CDOM | m⁻¹ | `mabit2022` | Power-law band ratio (443/560) |
-| | | `glukhovets2020` | Log-linear band ratio (443/490) |
-| SPM | g m⁻³ | `dogliotti2015` | Red/NIR switching (665/865 nm) |
-| | | `nechad2010` | Single-band (665 nm, switches to 865 nm) |
-| | | `doxaran2012` | NIR/green ratio (865/560 nm) |
-| Turbidity | FNU | `dogliotti2015_t` | Same switching scheme as dogliotti2015 SPM |
-| | | `nechad2016_olci` | Multi-band OLCI LUT (665/709/865 nm) |
+Wavelengths below are nominal; see band matching above. `python batch_wq.py <config> --list-algorithms` prints this table live from the registry.
+
+| Variable | Units | Algorithm key | Sensors | Method |
+|----------|-------|---------------|---------|--------|
+| Chla | mg m⁻³ | `gons2005` | OLCI, MSI | NIR-red (665/709/779), CDOM-insensitive |
+| | | `oc4me` | OLCI | OC4Me log-polynomial (443/490/510/560) |
+| | | `ndci` | OLCI, MSI | NDCI (665/709) |
+| | | `nir_red` | OLI | Linear 865/665 ratio proxy — OLI has no red edge |
+| CDOM | m⁻¹ | `mabit2022` | all | Power-law band ratio (443/560) |
+| | | `glukhovets2020` | all | Log-linear band ratio (443/490) |
+| | | `mabit_redgreen` | all | Red/green log-power (665/560), no blue bands needed |
+| SPM | g m⁻³ | `dogliotti2015` | all | Red/NIR switching (665/865) |
+| | | `nechad2010` | all | Single-band (665, switches to 865) |
+| | | `doxaran2012` | all | NIR/green ratio (865/560) |
+| | | `mabit_powerlaw` | all | Single-band log-power — 740 nm on MSI, 665 nm on OLI (B4) and OLCI (Oa8) |
+| Turbidity | FNU | `dogliotti2015_t` | all | Blended red/NIR switch (665/865) |
+| | | `dogliotti2015_hs` | all | Same coefficients, hard ρw(red) < 0.05 switch |
+| | | `nechad2016_olci` | OLCI | Multi-band OLCI LUT (665/709/865) |
+
+`mabit_redgreen`, `mabit_powerlaw`, `dogliotti2015_hs`, and `nir_red` are the forms used in the SAMBA / Eeyou-Sat `l3_MSI_OLI` L3 chain, ported here. The first three reproduce that chain bit-for-bit on MSI and OLI scenes; `mabit_powerlaw` additionally runs on OLCI, reading Oa8 (665 nm) with the OLI red-band pair. `nir_red` differs on one point: it returns NaN where the retrieval is negative — which is most of a clear-water scene — instead of clamping to 0, so that DRP temporal means are not loaded with a mass of exact zeros that are not measurements.
 
 ### Usage
 
@@ -191,10 +242,12 @@ python batch_wq.py wq_config.yml [options]
 | Flag | Description |
 |------|-------------|
 | `--scene SUBSTR` | Process only scenes whose directory name contains `SUBSTR` (repeatable) |
+| `--sensor NAME` | Process only this sensor, platform, or family — `L8`, `L9`, `OLI`, `S2`, `MSI`, `S3A`, `OLCI`, `L8_OLI`, … (repeatable) |
 | `--pmp-only` | Compute scene-level PMP products only; skip DRP aggregation |
 | `--drp-only` | Run DRP aggregation only (PMPs must already exist) |
 | `--period daily\|monthly\|yearly` | Restrict DRP aggregation to one period tier |
 | `--limit N` | Stop after processing N scenes |
+| `--list-algorithms` | Print the algorithm registry with bands and supported sensors, then exit |
 
 #### Examples
 
@@ -210,6 +263,12 @@ python batch_wq.py wq_config.yml --drp-only
 
 # Daily DRP only
 python batch_wq.py wq_config.yml --drp-only --period daily
+
+# Landsat scenes only
+python batch_wq.py wq_config.yml --sensor OLI
+
+# What can run on what
+python batch_wq.py wq_config.yml --list-algorithms
 ```
 
 ### Configuration
@@ -219,30 +278,54 @@ Copy and edit `wq_config.yml`:
 ```yaml
 gaac_gen_dir: /path/to/gaac_gen/src  # optional; enables Cinputmask for mask reading
 
-l2_dir: /path/to/L2_output           # directory containing *_GAAC/ scene subdirs
+l2_dir: /path/to/L2_output           # searched recursively for *_GAAC/ scene dirs
 l3_dir: /path/to/L3_output           # root for PMP + DRP product tree
 aoi_name: JamesBay                   # label used in DRP filenames
 
+band_tolerance: 15                    # nm; nominal→actual band matching window
+
+# `sensors:` picks a different algorithm per mission. Keys are matched
+# most-specific-first: exact sensor tag (S3_OLCIA, S2_MSIB, L8_OLI, L9_OLI2),
+# then platform (S3A, S2, L8, L9), then family (OLCI, MSI, OLI). A value may be
+# a bare algorithm name or a full {algorithm, params, enabled} mapping.
 wq_products:
   chla:
     enabled: true
-    algorithm: gons2005
+    algorithm: gons2005               # the default, used where no sensor matches
     params: {}                        # optional coefficient overrides
+    sensors:
+      MSI: ndci
+      OLI: nir_red
   cdom:
     enabled: true
     algorithm: mabit2022
     params: {}
+    sensors:
+      MSI: mabit_redgreen
+      OLI: mabit_redgreen
   spm:
     enabled: true
     algorithm: dogliotti2015
     params: {}
+    sensors:
+      MSI: {algorithm: mabit_powerlaw, params: {MSI_A: 17.0, MSI_B: 0.42}}
+      OLI: mabit_powerlaw
   turbidity:
     enabled: true
     algorithm: dogliotti2015_t
     params: {}
+    sensors:
+      MSI: dogliotti2015_hs
+      OLI: dogliotti2015_hs
 
 aggregation:
   periods: [daily, monthly, yearly]
+  sensors: all                        # which sensors enter the composites
+  grid:                               # common grid every PMP is warped onto
+    crs: EPSG:32617
+    resolution: 30
+    bounds: [596055, 5932935, 649125, 5999145]
+    resampling: average
 
 replace_output: false                 # set true to overwrite existing outputs
 ```
@@ -266,3 +349,5 @@ replace_output: false                 # set true to overwrite existing outputs
     └── yearly/YYYY/
         └── <aoi>_YYYY_<var>.tif
 ```
+
+Every DRP carries `sensors`, `grid`, and `n_scenes`/`n_days`/`n_months` tags recording what went into it. All DRPs sit on the configured target grid regardless of which missions contributed.

@@ -8,11 +8,15 @@ gons2005 : NIR-red semi-analytical (CDOM-insensitive)
            Gons et al. 2005, J. Plankton Research
 ndci     : Normalized Difference Chlorophyll Index
            Mishra & Mishra 2012, Remote Sensing of Environment
+           (OLCI 709 nm / MSI 704 nm red edge — not available on OLI)
+nir_red  : linear NIR/red ratio proxy used for Landsat OLI in the SAMBA /
+           Eeyou-Sat L3 chain, which has no red-edge band for NDCI
 """
 
 from __future__ import annotations
 import numpy as np
 from ..registry import register_algorithm
+from ..sensors import FAMILY_MSI, FAMILY_OLCI, FAMILY_OLI
 from .base import WQAlgorithm
 
 # Pure-water absorption coefficients at OLCI red/NIR wavelengths (Pope & Fry 1997)
@@ -41,6 +45,7 @@ class OC4MeChla(WQAlgorithm):
     reference = ("O'Reilly et al. (1998). J. Geophys. Res. 103(C11):24937. "
                  "ESA OLCI L2 ATBD coefficients (2013).")
     required_bands = [443, 490, 510, 560]
+    families = (FAMILY_OLCI,)   # 510 nm has no MSI or OLI counterpart
     input_quantity = 'Rrs'
 
     _DEFAULTS = {
@@ -84,6 +89,7 @@ class Gons2005Chla(WQAlgorithm):
     reference = ('Gons et al. (2005). J. Plankton Research 27(2):125–133. '
                  'doi:10.1093/plankt/fbh151')
     required_bands = [665, 709, 779]
+    families = (FAMILY_OLCI, FAMILY_MSI)   # OLI has neither a red edge nor 779 nm
     input_quantity = 'Rrs'
 
     _DEFAULTS = {
@@ -119,7 +125,8 @@ class NDCIChla(WQAlgorithm):
     units = 'mg m-3'
     reference = ('Mishra & Mishra (2012). Remote Sensing of Environment 117:394–406. '
                  'doi:10.1016/j.rse.2011.10.016')
-    required_bands = [665, 709]
+    required_bands = [665, 709]      # 704 nm on MSI, resolved by tolerance
+    families = (FAMILY_OLCI, FAMILY_MSI)   # OLI has no red-edge band
     input_quantity = 'Rrs'
 
     _DEFAULTS = {'A0': 14.039, 'A1': 86.115, 'A2': 194.325}
@@ -130,4 +137,43 @@ class NDCIChla(WQAlgorithm):
             denom = r709 + r665
             ndci = np.where(denom > 0, (r709 - r665) / denom, np.nan)
             result = self.A0 + self.A1 * ndci + self.A2 * ndci**2
+        return np.where(result > 0, result, np.nan).astype(np.float32)
+
+
+@register_algorithm('chla', 'nir_red')
+class NIRRedRatioChla(WQAlgorithm):
+    """Linear NIR/red ratio Chla proxy for Landsat OLI.
+
+    Chla = A · (Rrs(865) / Rrs(665)) + B
+
+    OLI carries no red-edge band, so neither NDCI nor the Gons NIR-red
+    inversion can be applied; this linear proxy on the 865/655 nm ratio is what
+    the SAMBA / Eeyou-Sat L3 chain uses for Landsat-8/9 instead.
+
+    It is an empirical stand-in rather than a calibrated inversion: the ratio
+    responds to backscatter as much as to pigment, so treat OLI Chla as a
+    relative index and prefer gons2005 or ndci wherever a red edge exists.
+
+    The ratio falls below A/|B| over most clear water, making the retrieval
+    negative there.  Those pixels become NaN, as in every other algorithm here,
+    rather than being clamped to 0 as the source notebook does — a clamp would
+    load the DRP temporal means with a large mass of exact zeros that are not
+    measurements.  Expect the great majority of an OLI scene to be NaN in this
+    product; the valid pixels are the turbid, high-ratio ones.
+    """
+    product = 'chla'
+    name = 'nir_red'
+    units = 'mg m-3'
+    reference = 'Empirical NIR/red proxy, SAMBA / Eeyou-Sat L3 chain (l3_MSI_OLI)'
+    required_bands = [665, 865]
+    families = (FAMILY_OLI,)
+    input_quantity = 'Rrs'
+
+    _DEFAULTS = {'A': 24.5, 'B': -18.3}
+
+    def compute(self, bands: dict[int, np.ndarray]) -> np.ndarray:
+        r665, r865 = bands[665], bands[865]
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ratio = np.where(r665 > 0, r865 / r665, np.nan)
+            result = self.A * ratio + self.B
         return np.where(result > 0, result, np.nan).astype(np.float32)

@@ -6,16 +6,23 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import WQConfig
+from .config import WQConfig, resolve_product
 from .registry import get_algorithm
-from .scene import WQScene
+from .scene import MissingBandsError, WQScene
+from .sensors import SensorSpec
 from .io import write_wq_tif
+from .algorithms.base import WQAlgorithm
 
 logger = logging.getLogger(__name__)
 
 
 class SceneProcessor:
     """Process a single *_GAAC scene directory → write PMP TIFs per product.
+
+    Algorithms are chosen per sensor: a product may name one algorithm for OLCI
+    and another for MSI or OLI (see `config.resolve_product`), and any algorithm
+    whose family or band requirements the scene cannot satisfy is skipped with a
+    warning rather than failing the scene.
 
     PMP storage path
     ----------------
@@ -24,22 +31,42 @@ class SceneProcessor:
 
     def __init__(self, cfg: WQConfig) -> None:
         self.cfg = cfg
-        self._algorithms: dict = {}   # {product: (algo_instance, algo_name)}
-        self._build_algorithms()
-
-    def _build_algorithms(self) -> None:
+        # {sensor key: {product: algorithm instance}} — built lazily per sensor
+        self._algorithms: dict[str, dict[str, WQAlgorithm]] = {}
         from . import algorithms as _alg_pkg  # noqa: F401 — triggers registration
+
+    def _algorithms_for(self, sensor: SensorSpec) -> dict[str, WQAlgorithm]:
+        """Instantiate (and cache) the algorithm set this sensor should run."""
+        cached = self._algorithms.get(sensor.key)
+        if cached is not None:
+            return cached
+
+        built: dict[str, WQAlgorithm] = {}
         for prod, prod_cfg in self.cfg.wq_products.items():
-            if not prod_cfg.get('enabled', True):
+            variant = resolve_product(prod_cfg, sensor)
+            if variant is None:
+                logger.debug('Product %r disabled for %s', prod, sensor.key)
                 continue
-            algo_name = prod_cfg['algorithm']
-            params = prod_cfg.get('params') or {}
+
+            algo_name = variant['algorithm']
             try:
                 AlgoCls = get_algorithm(prod, algo_name)
             except KeyError as exc:
                 logger.error('Config error for product %r: %s', prod, exc)
                 continue
-            self._algorithms[prod] = AlgoCls(**params)
+
+            if not AlgoCls.supports(sensor):
+                logger.warning(
+                    'Product %r: algorithm %r is not calibrated for %s (families=%s) '
+                    '— skip; set wq_products.%s.sensors.%s in the config',
+                    prod, algo_name, sensor.key, AlgoCls.families, prod, sensor.family,
+                )
+                continue
+
+            built[prod] = AlgoCls(**(variant.get('params') or {}))
+
+        self._algorithms[sensor.key] = built
+        return built
 
     def process_scene(self, scene_dir: str | Path) -> dict[str, Path]:
         """Run all enabled algorithms on the scene; write PMP TIFs.
@@ -59,7 +86,11 @@ class SceneProcessor:
             return {}
 
         try:
-            scene = WQScene(rhow_path, mask_path, gaac_gen_dir=self.cfg.gaac_gen_dir)
+            scene = WQScene(
+                rhow_path, mask_path,
+                gaac_gen_dir=self.cfg.gaac_gen_dir,
+                band_tolerance=self.cfg.band_tolerance,
+            )
             n_water = int(scene.water_mask.sum())
         except Exception as exc:
             logger.error('Failed to load scene %s: %s', scene_dir.name, exc)
@@ -69,32 +100,44 @@ class SceneProcessor:
             logger.warning('Scene %s has 0 clear-water pixels — skip', scene.stem)
             return {}
 
-        logger.info('Scene %s  date=%s  water_px=%d', scene.stem, scene.date, n_water)
+        sensor = scene.sensor
+        logger.info('Scene %s  sensor=%s  date=%s  water_px=%d',
+                    scene.stem, sensor.key, scene.date, n_water)
+
+        algorithms = self._algorithms_for(sensor)
+        if not algorithms:
+            logger.warning('No applicable algorithms for %s (%s) — skip',
+                           scene.stem, sensor.key)
+            return {}
 
         outputs: dict[str, Path] = {}
-        for prod, algo in self._algorithms.items():
+        for prod, algo in algorithms.items():
             out_path = self._pmp_path(scene, prod)
             if out_path.exists() and not self.cfg.replace_output:
                 logger.debug('PMP exists, skip: %s', out_path.name)
                 outputs[prod] = out_path
                 continue
 
-            # Check required bands
-            available = set(scene.rrs.keys())  # same keys in both rrs and rhow
-            missing = [b for b in algo.required_bands if b not in available]
-            if missing:
-                logger.warning(
-                    'Product %r/%r: required bands %s not in scene (available: %s) — skip',
-                    prod, algo.name, missing, sorted(available)
-                )
+            wavelengths = algo.bands_for(sensor.family)
+            if not wavelengths:
+                logger.warning('Product %r/%r declares no bands for family %s — skip',
+                               prod, algo.name, sensor.family)
                 continue
 
-            # Select band dict by algorithm's declared input_quantity
-            if algo.input_quantity == 'rhow':
-                bands = {wl: scene.rhow[wl] for wl in algo.required_bands}
-            else:
-                bands = {wl: scene.rrs[wl] for wl in algo.required_bands}
+            try:
+                bands = scene.select(wavelengths, quantity=algo.input_quantity)
+            except MissingBandsError as exc:
+                logger.warning('Product %r/%r on %s: %s — skip',
+                               prod, algo.name, sensor.key, exc)
+                continue
 
+            mapping, _ = scene.resolve(wavelengths)
+            substitutions = {nom: act for nom, act in mapping.items() if nom != act}
+            if substitutions:
+                logger.info('  %-12s band substitutions (nominal→actual): %s',
+                            prod, substitutions)
+
+            algo.bind(sensor)
             try:
                 result = algo.compute(bands)
             except Exception as exc:
@@ -109,10 +152,16 @@ class SceneProcessor:
                 product=prod,
                 algorithm=algo.name,
                 units=algo.units,
-                extra_tags={'scene': scene.stem, 'date': str(scene.date)},
+                extra_tags={
+                    'scene':  scene.stem,
+                    'date':   str(scene.date),
+                    'sensor': sensor.key,
+                    'bands':  ','.join(str(mapping[wl]) for wl in wavelengths),
+                },
             )
             n_valid = int(np.isfinite(result).sum())
-            logger.info('  %-12s → %s  (valid_px=%d)', prod, out_path.name, n_valid)
+            logger.info('  %-12s → %s  (algo=%s, valid_px=%d)',
+                        prod, out_path.name, algo.name, n_valid)
             outputs[prod] = out_path
 
         return outputs

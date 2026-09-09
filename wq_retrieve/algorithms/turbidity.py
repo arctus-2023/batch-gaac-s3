@@ -6,6 +6,9 @@ dogliotti2015_t  : switching red/NIR turbidity — Dogliotti et al. 2015
                    gold-standard single-algorithm for all coastal/estuarine waters
 nechad2016_olci  : OLCI-specific band LUT — Nechad et al. 2016
                    uses Oa08/Oa11/Oa17 three-band switching
+dogliotti2015_hs : the same red/NIR coefficients with a hard reflectance
+                   switch instead of a blend — the form used for MSI and OLI
+                   in the SAMBA / Eeyou-Sat L3 chain
 
 NOTE: Both algorithms use input_quantity='rhow' (ρw = π·Rrs).
 """
@@ -13,6 +16,7 @@ NOTE: Both algorithms use input_quantity='rhow' (ρw = π·Rrs).
 from __future__ import annotations
 import numpy as np
 from ..registry import register_algorithm
+from ..sensors import FAMILY_OLCI
 from .base import WQAlgorithm
 from .spm import _DOGLIOTTI_RED, _DOGLIOTTI_NIR, _dogliotti_t
 
@@ -79,6 +83,7 @@ class Nechad2016OLCITurbidity(WQAlgorithm):
     reference = ('Nechad et al. (2016). Earth System Science Data 8:173–196. '
                  'doi:10.5194/essd-8-173-2016')
     required_bands = [665, 709, 865]
+    families = (FAMILY_OLCI,)   # Oa11-specific LUT; no MSI/OLI equivalent
     input_quantity = 'rhow'
 
     _DEFAULTS = {
@@ -107,4 +112,49 @@ class Nechad2016OLCITurbidity(WQAlgorithm):
             rho665 < self.rho_665_max, T665,
             np.where(rho709 < self.rho_709_max, T709, T865)
         )
+        return np.where(result > 0, result, np.nan).astype(np.float32)
+
+
+@register_algorithm('turbidity', 'dogliotti2015_hs')
+class Dogliotti2015HardSwitchTurbidity(WQAlgorithm):
+    """Dogliotti red/NIR turbidity with a hard reflectance switch.
+
+    T [FNU] = (AT · ρw(λ)) / (1 − ρw(λ)/CT),  λ = red where ρw(red) < switch,
+    NIR otherwise.
+
+    Same coefficients as `dogliotti2015_t`, but the branch is chosen directly
+    from ρw(red) against a fixed threshold (0.05) rather than blended over a
+    turbidity interval.  This is the form the SAMBA / Eeyou-Sat L3 chain applies
+    to MSI and OLI; it is cheaper and reproduces that chain exactly, at the cost
+    of a discontinuity at the switch point.  Prefer `dogliotti2015_t` when a
+    smooth field matters more than matching that chain.
+
+    Pixels with a non-positive ρw in either band are NaN, since the Nechad-form
+    denominator is only meaningful for positive reflectance.
+    """
+    product = 'turbidity'
+    name = 'dogliotti2015_hs'
+    units = 'FNU'
+    reference = ('Dogliotti et al. (2015). Remote Sensing of Environment 156:157–168. '
+                 'doi:10.1016/j.rse.2014.09.020 (hard-switch form, SAMBA L3 chain)')
+    required_bands = [665, 865]
+    input_quantity = 'rhow'
+
+    _DEFAULTS = {
+        'AT_red':           _DOGLIOTTI_RED['AT'],
+        'CT_red':           _DOGLIOTTI_RED['CT'],
+        'AT_nir':           _DOGLIOTTI_NIR['AT'],
+        'CT_nir':           _DOGLIOTTI_NIR['CT'],
+        'switch_threshold': 0.05,   # ρw(red) above which the NIR branch is used
+    }
+
+    def compute(self, bands: dict[int, np.ndarray]) -> np.ndarray:
+        rho_red, rho_nir = bands[665], bands[865]
+        with np.errstate(divide='ignore', invalid='ignore'):
+            d_red = 1.0 - rho_red / self.CT_red
+            d_nir = 1.0 - rho_nir / self.CT_nir
+            T_red = np.where(d_red > 0, (self.AT_red * rho_red) / d_red, np.nan)
+            T_nir = np.where(d_nir > 0, (self.AT_nir * rho_nir) / d_nir, np.nan)
+            result = np.where(rho_red < self.switch_threshold, T_red, T_nir)
+        result = np.where((rho_red > 0) & (rho_nir > 0), result, np.nan)
         return np.where(result > 0, result, np.nan).astype(np.float32)

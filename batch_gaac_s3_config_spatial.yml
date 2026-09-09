@@ -9,7 +9,7 @@ acolite_dir: /home/yan/WorkSpace/open_source/acolite_origin/acolite
 l1_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L1/s3_olci/JamesBay/2025
 
 # Root output directory; each scene gets its own sub-folder (<scene>_GAAC/)
-output_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_TEST_SNOW
+output_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_SPATIAL
 
 # ── Debug output ─────────────────────────────────────────────────────────────
 # Write the intermediate fields each stage worked from, on top of the products:
@@ -133,5 +133,5 @@ aerosol:
   #            turbidity-correlation warning: above it the pattern is tracking
   #            water type rather than aerosol and will over-correct the plume.
   # Omitting aerosol_mode keeps the old rule: tile_size present means tiled.
-  aerosol_mode: tiled
-  tile_size: 200        # tiled mode only; each tile gets its own opt pixel
+  aerosol_mode: spatial
+  # tile_size: 200      # tiled mode only -- unset here, this run is not tiled
