@@ -61,18 +61,27 @@ def build_parameters(cfg: dict) -> dict:
     selem_size        = water_masking_cfg.pop('selem_size', 5)
     water_masking_cfg['selem'] = square(selem_size)
 
-    snow_masking_cfg = cfg.get('snow_masking', {}).copy()
+    snow_masking_cfg  = cfg.get('snow_masking', {}).copy()
+    aco_masking_cfg   = cfg.get('aco_masking', {}).copy()
+    glint_masking_cfg = cfg.get('glint_masking', {}).copy()
 
     aerosol_cfg = cfg['aerosol'].copy()
     raw_best    = aerosol_cfg.get('best_ind', [])
     aerosol_cfg['best_ind'] = tuple(raw_best) if raw_best else ()
 
-    return {
-        'masking':      water_masking_cfg,
-        'snow_masking': snow_masking_cfg,
-        'rayleigh':     cfg['rayleigh'].copy(),
-        'aerosol':      aerosol_cfg,
+    parameters = {
+        'masking':       water_masking_cfg,
+        'snow_masking':  snow_masking_cfg,
+        'aco_masking':   aco_masking_cfg,
+        'glint_masking': glint_masking_cfg,
+        'rayleigh':      cfg['rayleigh'].copy(),
+        'aerosol':       aerosol_cfg,
     }
+    # Only pass debug through when the config says something; leaving it out lets
+    # SYSTEM.DEBUG in defult_config.yml decide.
+    if cfg.get('debug') is not None:
+        parameters['debug'] = bool(cfg['debug'])
+    return parameters
 
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
@@ -114,12 +123,21 @@ def main():
     parser.add_argument('--nir865-threshold', type=float, default=None, metavar='T',
                         help='Override the ENDSIII nir865_threshold from the config '
                              '(e.g. 0.05); ENDSIII snow pixels with rhot_865 >= T are excluded')
+    parser.add_argument('--debug', dest='debug', action='store_true', default=None,
+                        help='Write the intermediate fields each stage worked from '
+                             '(<scene>_aotpattern.tif, <scene>_rhog_ref.tif) on top '
+                             'of the products; overrides SYSTEM.DEBUG and the '
+                             'config debug: key')
+    parser.add_argument('--no-debug', dest='debug', action='store_false',
+                        help='Force debug output off for this run')
     parser.add_argument('--overwrite', action='store_true', default=False,
                         help='Reprocess scenes even if the output folder already exists '
                              '(default: skip scenes whose <scene>_GAAC/ folder is present)')
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    if args.debug is not None:
+        cfg['debug'] = args.debug
 
     # ── Inject gaac_gen into sys.path before any gaac imports ─────────────────
     gaac_gen_dir = cfg['gaac_gen_dir']
@@ -154,6 +172,8 @@ def main():
     logger.info(f'Input type   : {input_type}')
     logger.info(f'Clear-water threshold: {threshold:.1f} %')
     logger.info(f'NDWI threshold: {cfg["water_masking"]["threshold"]}')
+    if cfg.get('debug') is not None:
+        logger.info(f'Debug output: {"on" if cfg["debug"] else "off"}')
     logger.info(f'NIR865 threshold (ENDSIII): {cfg.get("snow_masking", {}).get("nir865_threshold", 0.05)}')
 
     scenes = sorted(glob.glob(os.path.join(l1_dir, '*.tif')))
