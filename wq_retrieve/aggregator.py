@@ -17,12 +17,26 @@ sensors take part with `aggregation.sensors`.
 
 Outlier rejection
 -----------------
-Before each array enters the accumulator, values outside the [5 %, 95 %]
-percentile of that array's finite pixels are set to NaN and excluded from
-the mean, std, and count.  The percentile bounds are computed per-file, at the
-file's native resolution and before warping, so that scenes with very different
-dynamic ranges are treated independently and extreme pixels cannot leak into
-the average of a coarser target cell.
+Two different operations, applied at different tiers.
+
+daily (PMP -> daily), per FILE: before each scene enters the accumulator, values
+outside the [5 %, 95 %] percentile of that scene's finite pixels are set to NaN.
+This is a spatial trim -- it looks at one image at a time -- computed at native
+resolution before warping, so extreme pixels cannot leak into a coarser cell.
+
+monthly and yearly, per PIXEL: every contributing composite is stacked, and at
+each pixel the values from the different dates are tested against each other
+(`aggregation.outliers`: modified z-score on the median absolute deviation by
+default, or Tukey's IQR fence). A date whose value is an outlier *for that pixel*
+is dropped from the merge -- its count is zeroed, so it leaves the pooled mean,
+variance and total count alike. Detection treats each date as one sample,
+whatever its count; the pooling that follows stays count-weighted. A pixel with
+fewer than `min_samples` dates is left alone, since two or three numbers cannot
+say which of them is wrong.
+
+The per-file trim is not applied at these tiers by default (`spatial_clip`): it
+removes the tails of every image whether or not they are outliers, and would
+compound, trimming again what the daily tier already trimmed.
 
 Each DRP TIF has 3 bands: mean, std, count.
 """
@@ -30,6 +44,7 @@ Each DRP TIF has 3 bands: mean, std, count.
 from __future__ import annotations
 import datetime
 import logging
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,7 +55,7 @@ from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from rasterio.warp import reproject, transform_bounds
 
-from .config import DRPGrid, WQConfig
+from .config import DRPGrid, OutlierConfig, WQConfig
 from .io import write_drp_tif
 from .sensors import SensorSpec, detect_sensor, matches
 
@@ -61,8 +76,15 @@ class _Grid:
         return self.height, self.width
 
     def matches(self, crs, transform, shape) -> bool:
-        """True when a source is already on this grid, so no warp is needed."""
-        return (crs == self.crs and transform == self.transform
+        """True when a source is already on this grid, so no warp is needed.
+
+        The transform is compared to within 1 µm, not exactly: scenes GAAC writes
+        on the same grid can differ in the last floating-point digit of their
+        origin (measured 6e-11 m across the JamesBay OLCI scenes), and an exact
+        `==` then resamples every one of them onto a grid it already sits on.
+        """
+        return (crs == self.crs
+                and transform.almost_equals(self.transform, precision=1e-6)
                 and tuple(shape) == self.shape)
 
     def describe(self) -> str:
@@ -88,6 +110,7 @@ class DRPAggregator:
         self.l3 = Path(cfg.l3_dir)
         #: sensor selectors admitted into composites; None = every sensor
         self.sensors = cfg.drp_sensors
+        self.outliers: OutlierConfig = cfg.outliers or OutlierConfig()
 
     # ── grid resolution ───────────────────────────────────────────────────────
 
@@ -264,7 +287,7 @@ class DRPAggregator:
         if grid is None:
             return None
 
-        mean, std, count = self._pooled_stack(daily_paths, grid)
+        mean, std, count, ostats = self._pooled_stack(daily_paths, grid)
         if mean is None:
             return None
 
@@ -281,10 +304,10 @@ class DRPAggregator:
             period='monthly',
             date_label=f'{year:04d}{month:02d}',
             extra_tags={'n_days': str(len(daily_paths)), 'grid': grid.describe(),
-                        'sensors': prov['sensors']},
+                        'sensors': prov['sensors'], **self._outlier_tags(ostats)},
         )
-        logger.info('Monthly DRP  %-10s %04d-%02d  days=%d', product, year, month,
-                    len(daily_paths))
+        logger.info('Monthly DRP  %-10s %04d-%02d  days=%d  %s', product, year, month,
+                    len(daily_paths), self._outlier_summary(ostats))
         return out_path
 
     # ── yearly ─────────────────────────────────────────────────────────────────
@@ -313,7 +336,7 @@ class DRPAggregator:
         if grid is None:
             return None
 
-        mean, std, count = self._pooled_stack(monthly_paths, grid)
+        mean, std, count, ostats = self._pooled_stack(monthly_paths, grid)
         if mean is None:
             return None
 
@@ -330,10 +353,10 @@ class DRPAggregator:
             period='yearly',
             date_label=f'{year:04d}',
             extra_tags={'n_months': str(len(monthly_paths)), 'grid': grid.describe(),
-                        'sensors': prov['sensors']},
+                        'sensors': prov['sensors'], **self._outlier_tags(ostats)},
         )
-        logger.info('Yearly DRP  %-10s %04d  months=%d', product, year,
-                    len(monthly_paths))
+        logger.info('Yearly DRP  %-10s %04d  months=%d  %s', product, year,
+                    len(monthly_paths), self._outlier_summary(ostats))
         return out_path
 
     # ── core statistics ────────────────────────────────────────────────────────
@@ -392,61 +415,158 @@ class DRPAggregator:
 
     def _pooled_stack(
         self, drp_paths: list[Path], grid: _Grid
-    ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
-        """Combine DRP 3-band files (mean/std/count) using count-weighted pooling.
+    ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None, dict]:
+        """Merge DRP 3-band files (mean/std/count) after per-pixel outlier removal.
 
-        For each pixel:
+        For each pixel, over the dates i that survive outlier removal:
           total_count = Σ count_i
           pooled_mean = Σ (mean_i · count_i) / total_count
           pooled_var  = Σ count_i · (var_i + (mean_i − pooled_mean)²) / total_count
 
-        Mean values outside the [5 %, 95 %] percentile of each DRP file are
-        excluded; their associated counts are zeroed so they do not contribute
-        to the pooled total.
-        """
-        H, W = grid.shape
-        total_count = np.zeros((H, W), dtype=np.float32)
-        mean_acc    = np.zeros((H, W), dtype=np.float32)
-        used = 0
+        The means of every contributing file are stacked (N, H, W) so each pixel's
+        values across the N dates can be tested against each other; a date that
+        is an outlier at a pixel has its count zeroed there. Only the means are
+        held in memory -- std and count are re-read per file during pooling.
 
-        # Pass 1: compute pooled mean
+        Returns (mean, std, count, stats) where stats reports what was removed.
+        """
+        clip = self.outliers.spatial_clip
+        H, W = grid.shape
+        readable: list[Path] = []
+        means: list[np.ndarray] = []
         for p in drp_paths:
-            m = self._read_aligned(p, 1, grid, clip=True)
+            m = self._read_aligned(p, 1, grid, clip=clip)
             c = self._read_aligned(p, 3, grid)
             if m is None or c is None:
                 continue
-            used += 1
-            # zero count where m is NaN (original nodata or clipped outlier)
-            c = np.where(np.isfinite(c) & np.isfinite(m), c, 0.0)
-            m = np.where(np.isfinite(m), m, 0.0)
+            # a pixel with no observations that day has no value to test
+            means.append(np.where(np.isfinite(c) & (c > 0), m, np.nan).astype(np.float32))
+            readable.append(p)
+
+        if not readable:
+            return None, None, None, {}
+
+        stack = np.stack(means)
+        del means
+        keep, stats = self._temporal_keep(stack)
+
+        # Pass 1: pooled mean over the kept (date, pixel) pairs
+        total_count = np.zeros((H, W), dtype=np.float32)
+        mean_acc    = np.zeros((H, W), dtype=np.float32)
+        for i, p in enumerate(readable):
+            c = self._read_aligned(p, 3, grid)
+            c = np.where(keep[i] & np.isfinite(c), c, 0.0)
+            m = np.where(keep[i], stack[i], 0.0)
             total_count += c
             mean_acc    += m * c
-
-        if used == 0:
-            return None, None, None
 
         safe_count = np.where(total_count > 0, total_count, 1.0)
         pooled_mean = mean_acc / safe_count
 
-        # Pass 2: compute pooled variance (same outlier mask as pass 1)
+        # Pass 2: pooled variance, same keep mask
         var_acc = np.zeros_like(pooled_mean)
-        for p in drp_paths:
-            m = self._read_aligned(p, 1, grid, clip=True)
-            s = self._read_aligned(p, 2, grid)
+        for i, p in enumerate(readable):
+            sd = self._read_aligned(p, 2, grid)
             c = self._read_aligned(p, 3, grid)
-            if m is None or s is None or c is None:
+            if sd is None or c is None:
                 continue
-            c = np.where(np.isfinite(c) & np.isfinite(m), c, 0.0)
-            m = np.where(np.isfinite(m), m, 0.0)
-            s = np.where(np.isfinite(s), s, 0.0)
-            var_acc += c * (s**2 + (m - pooled_mean)**2)
+            c  = np.where(keep[i] & np.isfinite(c), c, 0.0)
+            m  = np.where(keep[i], stack[i], 0.0)
+            sd = np.where(np.isfinite(sd), sd, 0.0)
+            var_acc += c * (sd**2 + (m - pooled_mean)**2)
 
         pooled_var = var_acc / safe_count
         pooled_std = np.sqrt(np.where(pooled_var > 0, pooled_var, 0.0))
 
         pooled_mean = np.where(total_count > 0, pooled_mean, np.nan)
         pooled_std  = np.where(total_count > 0, pooled_std,  np.nan)
-        return pooled_mean, pooled_std, total_count
+        return pooled_mean, pooled_std, total_count, stats
+
+    def _temporal_keep(self, stack: np.ndarray) -> tuple[np.ndarray, dict]:
+        """Per-pixel outlier test across the dates of `stack` (N, H, W).
+
+        Returns (keep, stats): keep is bool (N, H, W), True for a finite value that
+        survives; stats counts what was tested and removed.
+        """
+        cfg = self.outliers
+        finite = np.isfinite(stack)
+        n_dates = finite.sum(axis=0)
+        eligible = n_dates >= cfg.min_samples
+        stats = {'method': cfg.method, 'threshold': cfg.threshold,
+                 'min_samples': cfg.min_samples, 'samples': int(finite.sum()),
+                 'tested_px': int(eligible.sum()), 'removed': 0}
+
+        if cfg.method == 'none' or not eligible.any():
+            return finite, stats
+
+        with warnings.catch_warnings():
+            # all-NaN pixels are expected (no water there on any date)
+            warnings.simplefilter('ignore', RuntimeWarning)
+            if cfg.method == 'mad':
+                med = np.nanmedian(stack, axis=0)
+                mad = np.nanmedian(np.abs(stack - med), axis=0)
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    z = 0.6745 * (stack - med) / mad
+                # MAD == 0 means at least half the dates share one value exactly;
+                # the score is undefined there, so nothing is removed rather than
+                # everything that differs from that value.
+                outlier = (np.abs(z) > cfg.threshold) & (mad > 0)
+            else:  # iqr
+                q1, q3 = self._nan_quantiles(stack, (0.25, 0.75))
+                iqr = q3 - q1
+                outlier = ((stack < q1 - cfg.threshold * iqr)
+                           | (stack > q3 + cfg.threshold * iqr))
+
+        outlier &= finite & eligible[np.newaxis]
+        stats['removed'] = int(outlier.sum())
+        return finite & ~outlier, stats
+
+    @staticmethod
+    def _nan_quantiles(stack: np.ndarray, fractions) -> list[np.ndarray]:
+        """Per-pixel quantiles over axis 0, ignoring NaN.
+
+        Equivalent to np.nanpercentile(..., axis=0) with its default linear
+        interpolation, but ~15x faster on a full grid: nanpercentile handles NaN
+        one slice at a time, which took ~53 s per product on the LaGrande grid.
+        np.sort sends NaN to the end, so the first n finite values of each column
+        are already ordered and the quantile is a gather plus one interpolation.
+        """
+        n_dates = stack.shape[0]
+        srt = np.sort(stack, axis=0)
+        n = np.isfinite(stack).sum(axis=0)
+        out = []
+        for frac in fractions:
+            pos = frac * (n - 1)
+            lo = np.clip(np.floor(pos), 0, n_dates - 1).astype(np.intp)
+            hi = np.clip(np.ceil(pos), 0, n_dates - 1).astype(np.intp)
+            v_lo = np.take_along_axis(srt, lo[np.newaxis], axis=0)[0]
+            v_hi = np.take_along_axis(srt, hi[np.newaxis], axis=0)[0]
+            q = v_lo + (v_hi - v_lo) * (pos - lo)
+            out.append(np.where(n > 0, q, np.nan))
+        return out
+
+    @staticmethod
+    def _outlier_tags(stats: dict) -> dict[str, str]:
+        """Record how the merge was cleaned, in the product itself."""
+        if not stats:
+            return {}
+        return {'outlier_method': str(stats['method']),
+                'outlier_threshold': f"{stats['threshold']:g}",
+                'outlier_min_samples': str(stats['min_samples']),
+                'outlier_removed': str(stats['removed']),
+                'outlier_samples': str(stats['samples'])}
+
+    @staticmethod
+    def _outlier_summary(stats: dict) -> str:
+        if not stats or stats['method'] == 'none':
+            return 'outliers: off'
+        if not stats['tested_px']:
+            return (f"outliers: none tested -- no pixel has "
+                    f"{stats['min_samples']}+ dates")
+        pct = 100.0 * stats['removed'] / max(1, stats['samples'])
+        return (f"outliers({stats['method']} {stats['threshold']:g}): removed "
+                f"{stats['removed']} of {stats['samples']} samples ({pct:.2f}%) "
+                f"over {stats['tested_px']} px with {stats['min_samples']}+ dates")
 
     # ── path helpers ──────────────────────────────────────────────────────────
 

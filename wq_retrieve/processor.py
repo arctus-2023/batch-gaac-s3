@@ -90,6 +90,7 @@ class SceneProcessor:
                 rhow_path, mask_path,
                 gaac_gen_dir=self.cfg.gaac_gen_dir,
                 band_tolerance=self.cfg.band_tolerance,
+                exclude_bits=self.cfg.mask_exclude_bits,
             )
             n_water = int(scene.water_mask.sum())
         except Exception as exc:
@@ -101,8 +102,11 @@ class SceneProcessor:
             return {}
 
         sensor = scene.sensor
-        logger.info('Scene %s  sensor=%s  date=%s  water_px=%d',
+        logger.info('Scene %s  sensor=%s  date=%s  kept_px=%d',
                     scene.stem, sensor.key, scene.date, n_water)
+        logger.info('  mask: %s  exclude_bits=%s%s', scene.mask_source,
+                    self.cfg.mask_exclude_bits,
+                    f' (= {scene.mask_bits})' if scene.mask_bits is not None else '')
 
         algorithms = self._algorithms_for(sensor)
         if not algorithms:
@@ -157,6 +161,9 @@ class SceneProcessor:
                     'date':   str(scene.date),
                     'sensor': sensor.key,
                     'bands':  ','.join(str(mapping[wl]) for wl in wavelengths),
+                    'mask_source': scene.mask_source,
+                    'mask_exclude_bits': ('' if scene.mask_bits is None
+                                          else str(scene.mask_bits)),
                 },
             )
             n_valid = int(np.isfinite(result).sum())
@@ -177,13 +184,13 @@ class SceneProcessor:
             return None, None
         rhow_path = rhow_files[0]
         base = rhow_path.name.replace('_rhor_rhow.tif', '')
-        mask_path = scene_dir / f'{base}_mask.tif'
-        if not mask_path.exists():
-            mask_path = scene_dir / f'{base}_watermask.tif'
-        if not mask_path.exists():
-            logger.warning('No mask file found for %s', base)
-            mask_path = None
-        return rhow_path, mask_path
+        # A legacy mask file is only a fallback: current GAAC output carries the
+        # register inside the rhow and deletes these files, so their absence is
+        # normal. WQScene raises if the rhow has no flag band AND none exists.
+        for candidate in (f'{base}_mask.tif', f'{base}_watermask.tif'):
+            if (scene_dir / candidate).exists():
+                return rhow_path, scene_dir / candidate
+        return rhow_path, None
 
     def _pmp_path(self, scene: WQScene, product: str) -> Path:
         """Build PMP output path: <l3>/PMP/YYYY/MM/DD/<scene_stem>/<stem>_<product>.tif"""

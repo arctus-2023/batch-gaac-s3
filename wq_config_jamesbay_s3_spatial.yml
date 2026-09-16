@@ -1,3 +1,8 @@
+# JamesBay S3 OLCI water quality from the spatial-aerosol L2 run
+# (batch_gaac_s3_config_spatial.yml -> S3OLCI/L2_SPATIAL). Same as
+# wq_config_jamesbay_s3.yml apart from the l2/l3 directories and the grid
+# bounds, which are the exact native OLCI origin rather than 0.1 m rounded.
+
 # Water Quality Retrieval Pipeline — Sentinel-3 OLCI only
 # James Bay / La Grande, GAAC-corrected S3A + S3B scenes.
 #
@@ -14,10 +19,10 @@ gaac_gen_dir: /home/yan/WorkSpace/pycharm_proj/gaac_arctus/gaac_gen/src
 # recursively.  L2_TEST_SNOW holds the fullest S3 set (S3A + S3B, June–July
 # 2025); swap for .../S3OLCI/L2_TEST/ or .../S3OLCI/L2/ as needed.
 # Scenes without a *_rhor_rhow.tif are skipped with a warning.
-l2_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_TEST_SNOW/
+l2_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L2_SPATIAL/
 
 # Output: root for L3 product tree (PMP/ + DRP/ are created here)
-l3_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L3/
+l3_dir: /home/yan/WorkSpace/projects/SAMBA/DATA/S3OLCI/L3_SPATIAL/
 
 # AOI label used in DRP filenames, e.g. JamesBay_20250710_chla.tif
 aoi_name: JamesBay
@@ -151,7 +156,7 @@ aggregation:
   grid:
     crs: EPSG:32617
     resolution: 300
-    bounds: [518233.4, 5657121.5, 686833.4, 6115821.5]
+    bounds: [518233.3530850719, 5657121.519344312, 686833.3530850719, 6115821.519344312]
     resampling: average
 
 # Set true to recompute and overwrite existing output files

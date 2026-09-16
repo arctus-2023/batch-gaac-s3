@@ -15,10 +15,33 @@ algorithm per sensor (see `wq_products.<product>.sensors` in the config).
 
 Products
 --------
-PMP (Primary): one GeoTIFF per variable per scene
+PMP (Primary): one GeoTIFF per variable per scene, masked (see below)
 DRP daily    : temporal merge of same-day PMPs (mean / std / count)
-DRP monthly  : pooled aggregate of daily DRPs
-DRP yearly   : pooled aggregate of monthly DRPs
+DRP monthly  : pooled aggregate of daily DRPs, after per-pixel outlier removal
+DRP yearly   : pooled aggregate of monthly DRPs, after per-pixel outlier removal
+
+PMP mask
+--------
+The mask comes from the flag band GAAC writes into each *_rhor_rhow.tif — the
+uint16 bit register, which GAAC also deletes the separate *_mask.tif for. A pixel
+is excluded from every PMP when ANY of the chosen bits is set. Choose them with
+`mask.exclude_bits` in the config, or --exclude-bits here: bit names (from the
+file's own `flag_bits` tag), bit numbers, and/or `opt_exclude` — the register's
+own definition of clear water, and the default.
+
+    nonwater_swir 0   cirrus 1   high_toa 2   negative_rhos 3   outofscene 4
+    land 7   cloud 8   snow 9   glint 10   post_glint 11
+
+Choose deliberately for water quality: `nonwater_swir` fires on bright-NIR turbid
+water, which is exactly the water an SPM or turbidity product is about.
+Scenes written before the flag band existed fall back to *_mask.tif.
+
+DRP outliers
+------------
+monthly and yearly: at each pixel, the values from the contributing dates are
+tested against each other and a date that is an outlier for that pixel is
+dropped before merging (`aggregation.outliers`; MAD modified z-score by default).
+daily keeps its per-scene 5-95 % percentile trim.
 
 DRP composites merge every contributing mission for a period. The missions do
 not share a grid, so each PMP is warped onto the common target grid set by
@@ -34,6 +57,9 @@ Usage
 
 # Only Landsat scenes (accepts S3/S3A/OLCI/S2/MSI/L8/L9/OLI/L8_OLI/…):
     python batch_wq.py wq_config.yml --sensor L8 --sensor L9
+
+# Mask out land, cloud, snow and glint only -- keep turbid (nonwater_swir) water:
+    python batch_wq.py wq_config.yml --exclude-bits land,outofscene,cloud,snow,glint
 
 # PMP only (no aggregation):
     python batch_wq.py wq_config.yml --pmp-only
@@ -106,6 +132,12 @@ def _parse_args() -> argparse.Namespace:
         help='Stop after processing this many scenes',
     )
     parser.add_argument(
+        '--exclude-bits', default=None, metavar='BITS',
+        help='Comma-separated flag-band bits that exclude a pixel from the PMPs: '
+             'names (land, cloud, glint, ...), numbers, and/or opt_exclude. '
+             'Overrides mask.exclude_bits in the config',
+    )
+    parser.add_argument(
         '--list-algorithms', action='store_true',
         help='Print every registered algorithm with its bands and sensors, then exit',
     )
@@ -134,6 +166,11 @@ def main() -> int:
 
     from wq_retrieve.config import load_config
     cfg = load_config(config_path)
+    if args.exclude_bits:
+        cfg.mask_exclude_bits = [
+            int(b) if b.strip().isdigit() else b.strip()
+            for b in args.exclude_bits.split(',') if b.strip()
+        ]
 
     # Inject gaac_gen if configured (enables Cinputmask for mask reading)
     if cfg.gaac_gen_dir and cfg.gaac_gen_dir not in sys.path:
@@ -151,6 +188,12 @@ def main() -> int:
 
     logger.info('Registered algorithms: %s', list_algorithms())
     logger.info('Band matching tolerance: ±%d nm', cfg.band_tolerance)
+    logger.info('PMP mask: exclude_bits=%s (from the rhow flag band)',
+                cfg.mask_exclude_bits)
+    o = cfg.outliers
+    logger.info('DRP monthly/yearly outliers: %s', 'off' if o.method == 'none' else
+                f'{o.method} threshold={o.threshold:g} min_samples={o.min_samples} '
+                f'spatial_clip={o.spatial_clip}')
 
     from wq_retrieve.processor import SceneProcessor
     from wq_retrieve.aggregator import DRPAggregator

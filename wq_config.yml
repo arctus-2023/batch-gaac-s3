@@ -25,6 +25,24 @@ aoi_name: JamesBay
 # rejecting genuinely absent bands such as 510 nm on MSI/OLI.
 band_tolerance: 15
 
+# ── PMP mask ──────────────────────────────────────────────────────────────────
+# GAAC writes its uint16 bit register into each *_rhor_rhow.tif as a flag band
+# (and deletes the separate *_mask.tif). A pixel is excluded from every PMP when
+# ANY bit listed here is set. Give bit names, bit numbers, or both; `opt_exclude`
+# stands for the register's own opt_exclude_bits -- GAAC's clear water, and the
+# pipeline's previous behaviour.
+#
+#   nonwater_swir 0  cirrus 1  high_toa 2  negative_rhos 3  outofscene 4
+#   land 7  cloud 8  snow 9  glint 10  post_glint 11
+#
+# Choose deliberately. `opt_exclude` includes nonwater_swir, which fires on
+# bright-NIR TURBID water -- the very pixels spm and turbidity are about -- and
+# does not include negative_rhos, where a negative band can break ratio
+# algorithms. Override on the command line with --exclude-bits.
+mask:
+  exclude_bits: opt_exclude
+  # exclude_bits: [land, outofscene, cloud, snow, glint, negative_rhos]
+
 # ── Water quality products ────────────────────────────────────────────────────
 # For each product, choose the algorithm and optionally override coefficients.
 # Set enabled: false to skip a product entirely.
@@ -102,6 +120,24 @@ aggregation:
     - daily
     - monthly
     - yearly
+
+  # Per-pixel outlier removal for the monthly and yearly DRPs. At each pixel the
+  # values from the contributing dates are tested against each other, and a date
+  # that is an outlier for that pixel is dropped before merging -- its count
+  # zeroed, so it leaves the mean, std and count alike. The daily tier is
+  # unaffected and keeps its per-scene 5-95 % percentile trim.
+  #   method      : mad  -- |0.6745 (x - median) / MAD| > threshold (default 3.5)
+  #                 iqr  -- outside [Q1 - t*IQR, Q3 + t*IQR]        (default 1.5)
+  #                 none -- keep every value
+  #   min_samples : a pixel with fewer dates than this is left alone (>= 3)
+  #   spatial_clip: also apply the per-file 5-95 % trim at these tiers. Off by
+  #                 default: it removes every image's tails whether or not they
+  #                 are outliers, and would trim again what daily already did.
+  outliers:
+    method: mad
+    threshold: 3.5
+    min_samples: 3
+    spatial_clip: false
 
   # Which sensors take part. Selectors may be an exact sensor tag (S3_OLCIA,
   # S2_MSIB, L8_OLI, L9_OLI2), a platform (S3A, S2, L8, L9), or an instrument
